@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "generated_from": "CONVENTIONS.md",
+  "rules": [
+    {
+      "id": "no-print",
+      "severity": "error",
+      "applies": [
+        "*.py"
+      ],
+      "type": "forbid_pattern",
+      "pattern": "(^|[^a-zA-Z_.])print[[:space:]]*\\(",
+      "message": "print() is forbidden — use the logging module"
+    },
+    {
+      "id": "no-wildcard-import",
+      "severity": "error",
+      "applies": [
+        "*.py"
+      ],
+      "type": "forbid_pattern",
+      "pattern": "^[[:space:]]*from[[:space:]]+[^[:space:]]+[[:space:]]+import[[:space:]]+\\*",
+      "message": "wildcard imports (from x import *) are forbidden"
+    },
+    {
+      "id": "module-docstring",
+      "severity": "warn",
+      "applies": [
+        "*.py"
+      ],
+      "type": "require_pattern",
+      "pattern": "\"\"\"",
+      "message": "module should start with a docstring"
+    },
+    {
+      "id": "max-line-100",
+      "severity": "warn",
+      "applies": [
+        "*.py"
+      ],
+      "type": "max_line_length",
+      "max": 100,
+      "message": "line exceeds 100 characters"
+    },
+    {
+      "id": "py-snake-case-file",
+      "severity": "warn",
+      "applies": [
+        "*.py"
+      ],
+      "type": "filename_pattern",
+      "pattern": "^[a-z_][a-z0-9_]*\\.py$",
+      "message": "Python files should be snake_case"
+    }
+  ]
+}

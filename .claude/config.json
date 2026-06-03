@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "mode": "enforce",
+  "source_globs": [
+    "*.py",
+    "*.swift"
+  ],
+  "ignore_path_substrings": [
+    "/tests/",
+    "/.venv/",
+    "/__pycache__/",
+    "/.git/"
+  ],
+  "ignore_basename_globs": [
+    "test_*.py",
+    "*_test.py",
+    "conftest.py"
+  ],
+  "thresholds": {
+    "gate2_min_lines": 50,
+    "gate3_min_lines": 200
+  },
+  "gates": {
+    "gate1": {
+      "enabled": true
+    },
+    "gate2": {
+      "enabled": false,
+      "model": "claude-haiku-4-5-20251001"
+    },
+    "gate3": {
+      "enabled": false,
+      "model": "claude-sonnet-4-6"
+    }
+  }
+}

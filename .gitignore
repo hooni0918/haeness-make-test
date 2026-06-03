@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+
+# --- harness runtime ---
+# Ignore gate logs but keep the .claude/ harness itself tracked.
+.claude/logs/*.log
