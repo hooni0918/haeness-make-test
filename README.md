@@ -212,6 +212,16 @@ pytest -v
 
 ---
 
+## 사용법
+
+실제로 돌리는 법은 **[USAGE.md](./USAGE.md)** 에 복붙 가능한 명령어로 정리돼 있다. 세 가지 모드:
+
+- **MODE A — Claude Code 안에서 (자동):** 이 레포를 Claude Code로 열면 `PreToolUse` 훅이 매 `Edit/Write/MultiEdit` 를 자동 게이트한다.
+- **MODE B — git commit 마다 (자동):** `bash tools/install-git-hooks.sh` 1회 설치 → 이후 error 위반 커밋을 차단(`--no-verify` 로 우회).
+- **MODE C — 배치 / CI / 수동 리뷰:** `python3 tools/hes_controller.py --staged | --files … | --range main..HEAD [--json] [--ai-review]` (REJECTED 시 exit 1).
+
+---
+
 ### Sources
 프레임워크 비교의 근거 자료:
 - Ouroboros — https://github.com/Q00/ouroboros

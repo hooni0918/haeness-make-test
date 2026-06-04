@@ -9,7 +9,8 @@
     "/tests/",
     "/.venv/",
     "/__pycache__/",
-    "/.git/"
+    "/.git/",
+    "/tools/"
   ],
   "ignore_basename_globs": [
     "test_*.py",

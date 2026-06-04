@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# HES pre-commit hook — enforces the HES gate on every `git commit`, including
+# commits made entirely OUTSIDE Claude Code (CLI, IDE, GUI clients). It wraps
+# the Layer-1 controller (tools/hes_controller.py --staged), which inspects the
+# STAGED changes, prints a human report, and exits non-zero when the commit is
+# REJECTED.
+#
+# Behaviour:
+#   - controller exits != 0 -> print a banner, exit 1 (block the commit).
+#   - controller exits  == 0 -> exit 0 (allow the commit).
+#   - python3 not on PATH    -> warn, exit 0 (FAIL-OPEN; never wedge git).
+
+# Resolve the repo root from the hook's runtime cwd. git invokes hooks with the
+# working tree as cwd, so `--show-toplevel` is reliable here. Fall back open if
+# we somehow are not inside a work tree.
+if ! ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  printf 'HES pre-commit: not inside a git work tree — skipping gate.\n' >&2
+  exit 0
+fi
+
+CONTROLLER="${ROOT}/tools/hes_controller.py"
+
+# Fail-open if python3 is unavailable — we must never block a developer's git
+# just because the runtime is missing.
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'HES pre-commit: python3 not found — skipping gate (fail-open).\n' >&2
+  exit 0
+fi
+
+# Fail-open if the controller is not present yet (e.g. partial checkout).
+if [ ! -f "$CONTROLLER" ]; then
+  printf 'HES pre-commit: %s not found — skipping gate (fail-open).\n' "$CONTROLLER" >&2
+  exit 0
+fi
+
+# Run the controller against the staged changes. Its stdout/stderr (the report)
+# flows straight through to the developer's terminal. Capture only the exit
+# status; guard with `if` so set -e does not abort us on a non-zero controller.
+if python3 "$CONTROLLER" --staged; then
+  exit 0
+fi
+
+printf '\n'
+printf 'HES gate REJECTED this commit — fix the violations above or commit with --no-verify to override.\n' >&2
+exit 1
