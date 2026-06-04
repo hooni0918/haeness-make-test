@@ -6,11 +6,11 @@
     "*.swift"
   ],
   "ignore_path_substrings": [
-    "/tests/",
-    "/.venv/",
-    "/__pycache__/",
-    "/.git/",
-    "/tools/"
+    "tests/",
+    ".venv/",
+    "__pycache__/",
+    ".git/",
+    "tools/"
   ],
   "ignore_basename_globs": [
     "test_*.py",

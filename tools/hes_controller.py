@@ -556,17 +556,19 @@ def main(argv=None):
     # 5. Exit code from the final verdict.
     exit_code = 1 if verdict == "REJECTED" else 0
 
-    # 6. Human report.
+    # 6. Human report. With --json, route the human-readable parts to stderr so
+    #    stdout stays pure JSON (pipeable to `jq`).
+    emit = _eprint if args.json else print
     if not args.quiet:
         report_lines = build_report(
             results, skipped, verdict, ai_note, error_count, warn_count
         )
         for line in report_lines:
-            print(line)
+            emit(line)
     verdict_line = "VERDICT: {}".format(verdict)
     if verdict == "REJECTED" and args.ai_review and ai_reason and ai_note == "ai-review: REJECT":
         verdict_line += " (ai-review: {})".format(ai_reason)
-    print(verdict_line)
+    emit(verdict_line)
 
     # 7. JSON output.
     if args.json:

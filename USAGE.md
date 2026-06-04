@@ -136,14 +136,22 @@ python3 tools/hes_controller.py --staged --ai-review
 
 > CI 게이트로 쓰려면 exit code 1 을 실패로 받으면 된다.
 
-샘플 출력:
+샘플 출력 — 깨끗한 파일(통과)과 위반 파일(차단):
 
 ```text
 $ python3 tools/hes_controller.py --files src/calculator.py
+OK   src/calculator.py
+
+1 files checked (1 source), 0 errors, 0 warnings
+VERDICT: APPROVED
+$ echo $?
+0
+
+$ python3 tools/hes_controller.py --files src/bad_example.py   # print() 포함
+---- src/bad_example.py
+  error gate1  [no-print] print() is forbidden — use the logging module (line 2)
+1 files checked (1 source), 1 errors, 0 warnings
 VERDICT: REJECTED
-  src/calculator.py
-    error  [no-print]  print() is forbidden — use the logging module (line 2)
-1 file, 1 error, 0 warn
 $ echo $?
 1
 ```

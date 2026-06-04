@@ -75,5 +75,11 @@ if [ -z "$verdict" ]; then
   exit 0
 fi
 
-printf '%s\n' "$verdict"
+# Guard: the first token must be APPROVE or REJECT. Anything else (e.g. a model
+# error printed to stdout) is not a verdict -> emit a canonical skip line.
+first_token="${verdict%% *}"
+case "$first_token" in
+  APPROVE | REJECT) printf '%s\n' "$verdict" ;;
+  *) printf 'APPROVE (ai-review skipped: unrecognized response)\n' ;;
+esac
 exit 0

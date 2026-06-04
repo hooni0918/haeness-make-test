@@ -133,7 +133,7 @@ AI_VERDICT="(skipped — tools/ai_review.sh not present)"
 if [ -f "$AI_REVIEW" ]; then
   printf '    -> found; requesting advisory opinion ...\n'
   AI_OUT=""
-  AI_OUT="$(bash "$AI_REVIEW" "$NORMALIZED" 2>&1 || true)"
+  AI_OUT="$(bash "$AI_REVIEW" <"$NORMALIZED" 2>&1 || true)"
   printf '%s\n' "$AI_OUT"
   AI_VERDICT="$AI_OUT"
 else
