@@ -230,3 +230,27 @@ To add or change Swift rules, edit the `*.swift` rule blocks in `CONVENTIONS.md`
 and re-run `python3 tools/parse_conventions.py`. `source_globs` in
 `.claude/config.json` already includes `*.swift`; `settings.json` and the router
 need no changes.
+
+---
+
+## Measuring the rules (precision / recall)
+
+A log tells you what the gate *did*; it cannot tell you a rule's *false-positive
+rate*, because `gates.log` has no ground truth. `tools/bench_rules.py` supplies
+it: it runs the real Gate 1 over a labeled corpus
+(`tools/bench/rule_fixtures.json`) where every snippet is tagged with the rule
+ids it *should* fire — including deliberately tricky clean cases (`x != y`,
+`!flag`, `as?`, `try await`, `reprint(`) that must fire **nothing**.
+
+```bash
+python3 tools/bench_rules.py          # per-rule TP/FP/FN, precision, recall
+python3 tools/bench_rules.py --json   # machine-readable
+```
+
+It reuses the gate through the same `HES_*` contract as `hes_controller.py` (no
+rule logic is reimplemented) and **exits non-zero if any rule has a false
+positive or a false negative** — so "every rule at precision/recall 1.00, 0 FP,
+0 FN" is an enforceable bar, wired into `pytest` via `tests/test_rules_bench.py`.
+Adding a rule? Add fixtures for it (a should-fire case *and* a tricky
+should-not-fire case) and keep the benchmark green. Decide rules by measurement,
+not by guessing.
