@@ -10,6 +10,31 @@
 
 ---
 
+## 0. 한눈에 (TL;DR)
+
+**무엇 —** Claude(또는 다른 AI 코딩 에이전트)가 `Edit/Write/MultiEdit`로 소스 파일을 고치려는 그 순간, 바뀐 코드가 디스크에 닿기 전에 컨벤션·아키텍처 위반을 검사해서 위반이면 쓰기 자체를 막는(`deny`) 강제 게이트다. "규칙 좀 지켜줘"라고 모델에게 부탁하는 게 아니라, 셸 프로세스가 OS 직전에서 물리적으로 차단한다.
+
+**어떻게 구현했나 —** Claude Code의 `PreToolUse` 훅에 `.claude/hooks/router.sh`를 물려 둔다. 훅은 모델의 의지와 무관하게 셸로 실행되므로, 게이트를 통과 못 한 쓰기는 파일시스템에 닿지 못한다. 변경은 비용이 싼 순서대로 4단 게이트를 거친다.
+
+1. **Gate 1 — grep (0토큰).** `CONVENTIONS.md`를 컴파일한 `.claude/cache/rules.json`으로 금지패턴(`print()` 등)·필수패턴(모듈 docstring)·줄길이·파일명을 검사. **항상 도는 유일한 하드 게이트.**
+2. **Gate 2 — Haiku (~300토큰).** diff만 보고 정규식이 못 잡는 의미적 냄새를 검토. 50줄 이상 변경 + 옵션 ON일 때만.
+3. **Gate 3 — Sonnet.** `ARCHITECTURE.md`를 함께 넣어 구조 드리프트(레이어·경계·결합)를 판단. 200줄 이상 변경 + 옵션 ON일 때만.
+4. **Gate 4 — 사람.** 기계가 못 정하는 건 사람이.
+
+`error` 등급 위반이 하나라도 나오면 `deny`. **Gate 2/3은 기본 OFF이고, 꺼져있거나 `claude` CLI가 없거나 모델이 죽으면 그냥 통과(fail-open)한다** — 그래서 "확실히 막아주는 건 Gate 1까지"라고 정직하게 봐야 한다. 핵심 절약 3원칙: ① 규칙은 한 번만 파싱해 캐시(`rules.json`), ② LLM 게이트엔 전체 파일이 아니라 diff만, ③ 게이트는 변경 규모로 고른다(작은 변경은 Gate 1에서 끝).
+
+**왜 이렇게 됐나 —** ① "리뷰를 더 열심히"가 아니라 "리뷰량 자체를 줄인다." 싼 grep이 대부분을 0토큰에 걸러내니, 비싼 LLM 게이트는 큰 변경에만 돈다. ② Ouroboros·Superpowers 같은 기성 도구는 전부 프롬프트·스킬·스펙 레이어의 *유도*라 모델이 마음먹으면 무시할 수 있다 — 끝에서 강제하는 안전망이 비어 있었다. 그 한 겹을 직접 만든 게 HES다. ③ 0→1 생성이 아니라 1→N 유지보수(매 변경 검증)에 맞춰, 변경 하나당 비용을 0~수백 토큰으로 눌렀다(자세한 비교는 2·3절).
+
+**어떻게 쓰나 —** 세 모드. 서로 독립이고 같이 켜도 된다.
+
+- **A. Claude Code 안에서 (자동):** 이 레포를 Claude Code로 열기만 하면 끝. `.claude/settings.json`이 훅을 이미 연결해 둬서, 이후 매 편집이 쓰기 직전 자동 게이트된다.
+- **B. git commit 마다 (자동):** `bash tools/install-git-hooks.sh` 1회 설치 → Claude 밖(터미널·IDE·GUI) 커밋도 막힌다. 급하면 `git commit --no-verify`로 1회 우회.
+- **C. 배치 / CI / 수동:** `python3 tools/hes_controller.py --staged` (또는 `--range main..HEAD --json`). `REJECTED`면 exit 1이라 CI 실패로 받으면 된다.
+
+> 규칙(`CONVENTIONS.md`)을 고쳤으면 **반드시** `python3 tools/parse_conventions.py`로 캐시를 다시 컴파일한다. 훅은 Markdown이 아니라 `rules.json`을 읽는다.
+
+---
+
 ## 1. HES가 하는 일
 
 ```
