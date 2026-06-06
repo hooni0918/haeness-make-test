@@ -8,3 +8,7 @@ venv/
 # --- harness runtime ---
 # Ignore gate logs but keep the .claude/ harness itself tracked.
 .claude/logs/*.log
+
+# --- Swift / SPM (sample build artifacts) ---
+.build/
+.swiftpm/

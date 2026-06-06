@@ -187,20 +187,46 @@ plain-text warnings instead of JSON, but the write still proceeds.
 
 ---
 
-## Adapting to other repos (e.g. iOS / Swift)
+## iOS / Swift support (implemented)
 
-The harness is language-agnostic — it only cares about file globs and rules.
+The harness is language-agnostic — it keys off file globs and regex rules — so
+the same Layer-0 gate enforces Swift conventions too. This is no longer
+hypothetical: `*.swift` rules ship in `CONVENTIONS.md`, a clean SwiftUI sample
+lives in `samples/ios/`, and the gate is verified end-to-end against it.
 
-1. **Add Swift rule blocks to `CONVENTIONS.md`** with `applies: *.swift`, for
-   example:
-   - `forbid_pattern` on `\bprint\(` → "use `os.Logger`, not `print`".
-   - `forbid_pattern` on `!\s*$|as!|try!` → "avoid force-unwrap / force-cast".
-   - `filename_pattern` so view files end in `View.swift`, etc.
-   - `max_line_length` to match your SwiftLint config.
-2. **Point the harness at Swift sources** by setting `source_globs` in
-   `.claude/config.json` (e.g. `["*.swift"]`, or add it alongside `*.py`).
-3. **Recompile:** `python3 tools/parse_conventions.py`.
+**Swift rules in force** (`applies: *.swift`, compiled into `rules.json`):
 
-Gate 1 then enforces the Swift rules with zero tokens; Gates 2/3 review larger
-Swift diffs exactly as they do for Python. The wiring in `settings.json` and the
-router need no changes.
+| id | severity | catches |
+|----|----------|---------|
+| `swift-no-print` | error | `print(` — use `os.Logger` instead |
+| `swift-no-force-cast` | error | `as!` force casts |
+| `swift-no-force-try` | error | `try!` force tries |
+| `swift-no-force-unwrap` | warn | heuristic force-unwrap `x!` |
+| `swift-max-line-120` | warn | lines over 120 cols (SwiftLint default) |
+
+**Cross-engine regex.** The token rules use a branch form (`^kw!|[^word]kw!`)
+that works on BSD grep, GNU grep, and ugrep alike. Heads-up: if your local
+`grep` is ugrep, its `(^|[^…])` group silently misses some keywords (`try!` at
+column 0 in particular), which is why the branch form is deliberate. Indented
+Swift — every real case — is caught on all three engines.
+
+**Verify it yourself:**
+
+```bash
+# clean SwiftUI sample -> silent allow
+jq -nc --arg fp "$PWD/samples/ios/CounterView.swift" \
+  --rawfile c samples/ios/CounterView.swift \
+  '{tool_name:"Write",tool_input:{file_path:$fp,content:$c}}' \
+| bash .claude/hooks/router.sh          # no output = allow
+
+# print / force-cast / force-try -> deny
+jq -nc --arg fp "$PWD/Bad.swift" \
+  --arg c $'func f() {\n    print("x")\n    let s = a as! String\n    let d = try! load()\n}\n' \
+  '{tool_name:"Write",tool_input:{file_path:$fp,content:$c}}' \
+| bash .claude/hooks/router.sh          # permissionDecision: deny
+```
+
+To add or change Swift rules, edit the `*.swift` rule blocks in `CONVENTIONS.md`
+and re-run `python3 tools/parse_conventions.py`. `source_globs` in
+`.claude/config.json` already includes `*.swift`; `settings.json` and the router
+need no changes.
