@@ -1,43 +1,39 @@
-# HARNESS.md — Operator's Guide
+# HARNESS.md — 운영자 가이드
 
-A **layered-gate enforcement harness** that sits between Claude Code and your
-source tree. Whenever Claude tries to `Edit`, `Write`, or `MultiEdit` a source
-file, a **PreToolUse hook** intercepts the *proposed* content **before it is
-written to disk** and runs it through a ladder of gates. Hard (error-severity)
-violations cause the hook to **DENY** the write; Claude never touches the file.
+Claude Code와 소스 트리 사이에 끼어 있는 **계층형 게이트 강제 집행 하네스**다.
+Claude가 소스 파일을 `Edit`, `Write`, `MultiEdit` 하려고 할 때마다 **PreToolUse 훅**이
+*제안된* 내용을 **디스크에 쓰이기 전에** 가로채서 게이트 사다리에 태운다. 하드(error 등급)
+위반이면 훅이 쓰기를 **DENY** 하고, Claude는 그 파일에 손도 못 댄다.
 
-This is a Claude↔OS enforcement layer: the rules live in your repo, the OS
-runs them via the hook, and they apply to *every* edit regardless of what the
-model intends.
+이건 Claude↔OS 강제 집행 레이어다. 규칙은 레포 안에 살고, OS가 훅으로 그걸 돌리며,
+모델이 뭘 의도하든 *모든* 편집에 적용된다.
 
 ---
 
-## The 4-gate ladder (and why it saves tokens)
+## 4단 게이트 사다리 (토큰을 아끼는 이유)
 
-Changes flow through progressively more expensive gates. Cheap gates run
-first and catch most violations, so the expensive ones rarely fire.
+변경은 점점 비싸지는 게이트를 차례로 지난다. 싼 게이트가 먼저 돌아 위반 대부분을 잡으니,
+비싼 게이트는 어쩌다 한 번 돈다.
 
 | Gate | Engine | Cost | Catches | When it runs |
 |------|--------|------|---------|--------------|
-| **Gate 1** | Pure shell / `grep` vs `rules.json` | **0 tokens** | Mechanical rules: forbidden patterns (e.g. `print()`), required patterns (e.g. module docstring), filename conventions, max line length | **Always** |
-| **Gate 2** | **Haiku** on the diff | ~300 tokens | Semantic smells a regex can't see (naming intent, obvious logic mistakes) | change **≥ 50 lines** *and* enabled |
-| **Gate 3** | **Sonnet** on the diff + `ARCHITECTURE.md` | higher | Architectural drift (layering, boundaries, coupling) | change **≥ 200 lines** *and* enabled |
-| **Gate 4** | **Human** | — | Anything the machine can't decide | out of scope for this harness |
+| **Gate 1** | 순수 셸 / `grep` vs `rules.json` | **0 tokens** | 기계적 규칙: 금지패턴(예: `print()`), 필수패턴(예: 모듈 docstring), 파일명 컨벤션, 최대 줄길이 | **항상** |
+| **Gate 2** | diff에 **Haiku** | ~300 tokens | 정규식이 못 보는 의미적 냄새(네이밍 의도, 빤히 보이는 로직 실수) | 변경 **≥ 50 lines** *그리고* 활성화 시 |
+| **Gate 3** | diff + `ARCHITECTURE.md`에 **Sonnet** | higher | 구조 드리프트(레이어링, 경계, 결합) | 변경 **≥ 200 lines** *그리고* 활성화 시 |
+| **Gate 4** | **사람** | — | 기계가 못 정하는 모든 것 | 이 하네스의 범위 밖 |
 
-**Token rationale:** the vast majority of edits are small and are fully judged
-by Gate 1 at **zero token cost**. Only larger changes pay for an LLM gate, and
-only the diff/content is sent — never the whole repo. Sonnet (Gate 3) is
-reserved for big structural changes where architecture review actually matters.
+**토큰 근거:** 편집 대부분은 작고, Gate 1이 **0토큰**으로 끝까지 판정한다.
+큰 변경만 LLM 게이트 비용을 치르고, 그마저도 diff/내용만 보낸다 — 레포 전체는 절대 안 보낸다.
+Sonnet(Gate 3)은 아키텍처 리뷰가 실제로 중요한 큰 구조 변경에만 쓴다.
 
-**Gate 1 is the only hard guarantee.** Gates 2 and 3 are **fail-open**: if they
-are disabled, the change is below their size threshold, the `claude` CLI is
-missing, or the model call errors/times out, they emit **no** violations and the
-change proceeds (a warning is logged). They can only *add* protection, never
-remove Gate 1's.
+**하드 보장은 Gate 1뿐이다.** Gate 2와 3은 **fail-open**이다. 꺼져 있거나, 변경이 크기
+임계값 아래거나, `claude` CLI가 없거나, 모델 호출이 에러/타임아웃 나면 위반을 **하나도** 내지
+않고 변경이 그대로 진행된다(경고만 로그에 남는다). 이들은 보호를 *더할* 뿐, Gate 1의 보호를
+빼앗지 못한다.
 
 ---
 
-## Flow
+## 흐름
 
 ```
 Claude proposes an Edit/Write/MultiEdit
@@ -60,89 +56,83 @@ Claude proposes an Edit/Write/MultiEdit
         └─ no  ─►  ALLOW  (silent in enforce mode; warnings printed in warn mode)
 ```
 
-The router collects violation lines from every gate (pipe-delimited
-`severity|gate|message`), then decides: **any `error` ⇒ deny**, otherwise allow
-(surfacing `warn` lines as information).
+라우터는 게이트마다 위반 줄(파이프 구분 `severity|gate|message`)을 모은 뒤 결정한다.
+**`error`가 하나라도 있으면 deny**, 아니면 allow다(`warn` 줄은 정보로 띄운다).
 
 ---
 
-## File map
+## 파일 맵
 
 | Path | Purpose |
 |------|---------|
-| `.claude/settings.json` | Wires the `PreToolUse` hook (`matcher: Edit\|Write\|MultiEdit`) to `bash .claude/hooks/router.sh`. |
-| `.claude/config.json` | Gate toggles, size thresholds, source globs, and `mode` (`enforce`\|`warn`). |
-| `.claude/cache/rules.json` | Machine-readable rules compiled from `CONVENTIONS.md`. Read by Gate 1. |
-| `.claude/logs/.gitkeep` | Keeps the logs dir in git; the actual `*.log` files are gitignored. |
-| `.claude/logs/gates.log` | Runtime log of gate decisions and warnings (not tracked in git). |
-| `.claude/hooks/lib/common.sh` | Shared helpers (`hes_root`, `hes_log`, `hes_deny`, `hes_allow`, `hes_inform`, `hes_basename_match`), sourced by the router and gates. |
-| `.claude/hooks/router.sh` | **Single entrypoint.** Reads the PreToolUse JSON from stdin once, runs the gates, emits exactly one decision. |
-| `.claude/hooks/gate1-shell.sh` | Gate 1: grep checks against `rules.json` (0 tokens). |
-| `.claude/hooks/gate2-semantic.sh` | Gate 2: Haiku on the diff (guarded, fail-open). |
-| `.claude/hooks/gate3-architect.sh` | Gate 3: Sonnet architecture review (guarded, fail-open). |
-| `tools/parse_conventions.py` | Compiles `CONVENTIONS.md` → `.claude/cache/rules.json`. |
-| `CONVENTIONS.md` | Human-readable conventions **plus** machine-parseable rule blocks. |
-| `ARCHITECTURE.md` | Architecture doc, read by Gate 3 for context. |
-| `HARNESS.md` | This operator's guide. |
+| `.claude/settings.json` | `PreToolUse` 훅(`matcher: Edit\|Write\|MultiEdit`)을 `bash .claude/hooks/router.sh`에 연결한다. |
+| `.claude/config.json` | 게이트 토글, 크기 임계값, source glob, `mode`(`enforce`\|`warn`). |
+| `.claude/cache/rules.json` | `CONVENTIONS.md`를 컴파일한 기계가독 규칙. Gate 1이 읽는다. |
+| `.claude/logs/.gitkeep` | logs 디렉토리를 git에 남기려는 용도. 실제 `*.log` 파일은 gitignore된다. |
+| `.claude/logs/gates.log` | 게이트 결정과 경고의 런타임 로그(git 추적 제외). |
+| `.claude/hooks/lib/common.sh` | 공용 헬퍼(`hes_root`, `hes_log`, `hes_deny`, `hes_allow`, `hes_inform`, `hes_basename_match`). 라우터와 게이트가 source 한다. |
+| `.claude/hooks/router.sh` | **단일 진입점.** PreToolUse JSON을 stdin에서 한 번 읽고, 게이트를 돌리고, 결정 딱 하나를 emit 한다. |
+| `.claude/hooks/gate1-shell.sh` | Gate 1: `rules.json` 대조 grep 검사(0토큰). |
+| `.claude/hooks/gate2-semantic.sh` | Gate 2: diff에 Haiku(가드, fail-open). |
+| `.claude/hooks/gate3-architect.sh` | Gate 3: Sonnet 아키텍처 리뷰(가드, fail-open). |
+| `tools/parse_conventions.py` | `CONVENTIONS.md` → `.claude/cache/rules.json` 컴파일. |
+| `CONVENTIONS.md` | 사람이 읽는 컨벤션 **더하기** 기계가 파싱하는 rule 블록. |
+| `ARCHITECTURE.md` | 아키텍처 문서. Gate 3이 컨텍스트로 읽는다. |
+| `HARNESS.md` | 이 운영자 가이드. |
 
 ---
 
-## The 3 core principles
+## 3대 핵심 원칙
 
-1. **Parse rules once into a cache.** `CONVENTIONS.md` is the human source of
-   truth; `tools/parse_conventions.py` compiles it into `.claude/cache/rules.json`.
-   The hook reads only the compiled cache on every edit — no re-parsing of prose,
-   no LLM cost for mechanical checks.
-2. **Send only the diff/content to LLM gates.** Gates 2 and 3 never see the whole
-   repo — just the proposed new code (and, for Gate 3, `ARCHITECTURE.md`). This
-   keeps each call to a few hundred tokens.
-3. **Pick the gate by change size.** Small changes stop at the free Gate 1. Gate 2
-   (Haiku) only engages at ≥ 50 changed lines; Gate 3 (Sonnet) only at ≥ 200.
-   You pay for intelligence only when the change is big enough to warrant it.
+1. **규칙은 한 번만 파싱해 캐시로.** `CONVENTIONS.md`가 사람용 진실의 원천이고,
+   `tools/parse_conventions.py`가 이걸 `.claude/cache/rules.json`으로 컴파일한다.
+   훅은 매 편집마다 컴파일된 캐시만 읽는다 — 산문 재파싱도, 기계적 검사를 위한 LLM 비용도 없다.
+2. **LLM 게이트엔 diff/내용만 보낸다.** Gate 2와 3은 레포 전체를 절대 안 본다 — 제안된 새 코드
+   (그리고 Gate 3은 `ARCHITECTURE.md`)만 본다. 그래서 호출 하나가 수백 토큰에 머문다.
+3. **게이트는 변경 규모로 고른다.** 작은 변경은 공짜 Gate 1에서 멈춘다. Gate 2(Haiku)는 변경된
+   줄이 ≥ 50일 때만, Gate 3(Sonnet)은 ≥ 200일 때만 돈다. 변경이 그만큼 커야 LLM 비용을 치른다.
 
 ---
 
-## How to use
+## 쓰는 법
 
-### 1. Edit conventions, then refresh the rule cache
-Edit the rule blocks in `CONVENTIONS.md`, then recompile the cache:
+### 1. 컨벤션을 고치고, 규칙 캐시를 새로 굽는다
+`CONVENTIONS.md`의 rule 블록을 고친 뒤 캐시를 다시 컴파일한다:
 
 ```bash
 python3 tools/parse_conventions.py
 ```
 
-This regenerates `.claude/cache/rules.json`. Gate 1 picks up the new rules on the
-next edit. **Always re-run this after changing `CONVENTIONS.md`** — the hook reads
-the cache, not the Markdown.
+이러면 `.claude/cache/rules.json`이 다시 생성된다. Gate 1은 다음 편집부터 새 규칙을 집는다.
+**`CONVENTIONS.md`를 바꿨으면 반드시 이걸 다시 돌려라** — 훅은 Markdown이 아니라 캐시를 읽는다.
 
-### 2. Toggle the LLM gates
-Edit `.claude/config.json` to turn Gate 2 / Gate 3 on or off, adjust their size
-thresholds, and choose the enforcement mode:
+### 2. LLM 게이트를 토글한다
+`.claude/config.json`을 고쳐 Gate 2 / Gate 3을 켜거나 끄고, 크기 임계값을 조정하고,
+강제 집행 모드를 고른다:
 
-- `enabled: true|false` per gate — disable to skip the gate entirely (fail-open).
-- `mode: "enforce"` — error-severity violations **block** the write.
-- `mode: "warn"` — violations are **printed as information** to the model but the
-  write is **allowed** (good for rolling out a new rule without breaking flow).
+- 게이트별 `enabled: true|false` — 끄면 그 게이트를 통째로 건너뛴다(fail-open).
+- `mode: "enforce"` — error 등급 위반이 쓰기를 **막는다**.
+- `mode: "warn"` — 위반을 모델에게 **정보로 출력**하되 쓰기는 **허용한다**(흐름을 깨지 않고 새
+  규칙을 점진 도입할 때 좋다).
 
-### 3. Read the logs
-Gate decisions and fail-open warnings are appended to:
+### 3. 로그를 읽는다
+게이트 결정과 fail-open 경고는 다음에 쌓인다:
 
 ```
 .claude/logs/gates.log
 ```
 
-Format: `<timestamp> | <gate> | <level> | <message>`. This file is gitignored;
-the directory is kept via `.gitkeep`.
+형식: `<timestamp> | <gate> | <level> | <message>`. 이 파일은 gitignore되고,
+디렉토리는 `.gitkeep`으로 유지한다.
 
 ---
 
-## How to test manually
+## 수동 테스트 방법
 
-You don't need Claude Code running to exercise the harness — just pipe a fake
-PreToolUse JSON object into the router. Build the JSON with `jq` so quoting is
-always valid. Run these from the **project root**.
+하네스를 굴려보는 데 Claude Code가 돌고 있을 필요는 없다 — 가짜 PreToolUse JSON 객체를 라우터에
+파이프하면 된다. 따옴표가 늘 유효하도록 JSON은 `jq`로 만든다. 아래는 **프로젝트 루트**에서 실행한다.
 
-### A) A change that should be DENIED (contains `print()`)
+### A) DENY 되어야 하는 변경 (`print()` 포함)
 
 ```bash
 jq -nc \
@@ -152,9 +142,8 @@ jq -nc \
 | bash .claude/hooks/router.sh
 ```
 
-Expected output — the deny decision. The reason is built as
-`Blocked by HES gate: ` followed by each error rule's `message` (the internal
-`error|gate1|…` pipe encoding is stripped and never appears here):
+기대 출력 — deny 결정이다. 사유는 `Blocked by HES gate: ` 뒤에 각 error 규칙의 `message`를
+붙여 만든다(내부 `error|gate1|…` 파이프 인코딩은 벗겨져 여기 나타나지 않는다):
 
 ```json
 {
@@ -166,9 +155,9 @@ Expected output — the deny decision. The reason is built as
 }
 ```
 
-When Claude Code receives this, the write is **blocked**.
+Claude Code가 이걸 받으면 쓰기가 **막힌다**.
 
-### B) A clean change that should be ALLOWED
+### B) ALLOW 되어야 하는 깨끗한 변경
 
 ```bash
 jq -nc \
@@ -178,29 +167,27 @@ jq -nc \
 | bash .claude/hooks/router.sh
 ```
 
-Expected: **no output, exit code 0** (silent allow). In `warn` mode you may see
-plain-text warnings instead of JSON, but the write still proceeds.
+기대: **출력 없음, 종료 코드 0**(조용한 allow). `warn` 모드에서는 JSON 대신 평문 경고가 보일 수
+있지만 쓰기는 그대로 진행된다.
 
-> Tip: an `Edit` payload uses `tool_input.new_string` (and `old_string`) instead
-> of `tool_input.content`; a `MultiEdit` payload uses `tool_input.edits[]` (an
-> array of `{old_string,new_string}`). The router handles all three shapes.
+> Tip: `Edit` 페이로드는 `tool_input.content` 대신 `tool_input.new_string`(과 `old_string`)을
+> 쓴다. `MultiEdit` 페이로드는 `tool_input.edits[]`(`{old_string,new_string}` 배열)을 쓴다.
+> 라우터가 세 형태를 모두 처리한다.
 
 ---
 
-## Adapting to other repos (e.g. iOS / Swift)
+## 다른 레포에 맞추기 (예: iOS / Swift)
 
-The harness is language-agnostic — it only cares about file globs and rules.
+하네스는 언어를 안 가린다 — 파일 glob과 규칙만 본다.
 
-1. **Add Swift rule blocks to `CONVENTIONS.md`** with `applies: *.swift`, for
-   example:
-   - `forbid_pattern` on `\bprint\(` → "use `os.Logger`, not `print`".
-   - `forbid_pattern` on `!\s*$|as!|try!` → "avoid force-unwrap / force-cast".
-   - `filename_pattern` so view files end in `View.swift`, etc.
-   - `max_line_length` to match your SwiftLint config.
-2. **Point the harness at Swift sources** by setting `source_globs` in
-   `.claude/config.json` (e.g. `["*.swift"]`, or add it alongside `*.py`).
-3. **Recompile:** `python3 tools/parse_conventions.py`.
+1. **`CONVENTIONS.md`에 Swift rule 블록을 추가한다.** `applies: *.swift`로, 예를 들어:
+   - `\bprint\(`에 `forbid_pattern` → "`print` 말고 `os.Logger`를 써라".
+   - `!\s*$|as!|try!`에 `forbid_pattern` → "force-unwrap / force-cast를 피하라".
+   - `filename_pattern`으로 view 파일은 `View.swift`로 끝나게, 등등.
+   - `max_line_length`로 SwiftLint 설정에 맞춘다.
+2. **하네스를 Swift 소스로 향하게 한다.** `.claude/config.json`의 `source_globs`를 설정한다
+   (예: `["*.swift"]`, 또는 `*.py` 옆에 추가).
+3. **재컴파일:** `python3 tools/parse_conventions.py`.
 
-Gate 1 then enforces the Swift rules with zero tokens; Gates 2/3 review larger
-Swift diffs exactly as they do for Python. The wiring in `settings.json` and the
-router need no changes.
+그러면 Gate 1이 0토큰으로 Swift 규칙을 강제하고, Gate 2/3은 큰 Swift diff를 Python에서와 똑같이
+리뷰한다. `settings.json`의 연결과 라우터는 손댈 게 없다.

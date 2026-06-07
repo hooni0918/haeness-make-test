@@ -1,26 +1,24 @@
-# Coding Conventions
+# 코딩 컨벤션
 
-These conventions are **ENFORCED** by the HES (Hook-Enforced Standards) gate harness.
-When you Edit, Write, or MultiEdit a source file, a PreToolUse hook intercepts the
-proposed content *before* it is written and runs a series of gates against it.
-Gate 1 is a pure shell/grep pass (0 tokens) that evaluates the machine-readable rule
-blocks below. Hard (error-severity) violations cause the write to be **denied**.
+이 컨벤션은 HES(Hook-Enforced Standards) 게이트 하네스가 **강제**한다.
+소스 파일을 Edit, Write, MultiEdit 하면 PreToolUse 훅이 쓰기 *직전에* 제안된 내용을
+가로채 일련의 게이트를 돌린다. Gate 1은 순수 셸/grep 패스(0토큰)로, 아래 기계가독
+rule 블록을 평가한다. 하드(error 등급) 위반이 나오면 그 쓰기는 **거부**된다.
 
-The prose in this file explains the intent; the fenced `rule` blocks under
-"Rules (machine-readable)" are the source of truth that the harness parses into
-`.claude/cache/rules.json`.
+이 파일의 산문은 의도를 설명한다. "Rules (machine-readable)" 아래의 `rule` 펜스
+블록이 진실의 원천이고, 하네스는 이걸 파싱해 `.claude/cache/rules.json`으로 만든다.
 
 ## Principles
 
-- **Prefer logging over `print()`.** Diagnostic output belongs in the `logging`
-  module, not in `print()` calls. `print()` is forbidden in source files.
-- **Use explicit imports — no wildcards.** Never write `from module import *`.
-  Import the specific names you use so dependencies stay visible and tooling works.
-- **Write module docstrings.** Every module should begin with a `"""docstring"""`
-  describing what it contains.
-- **Keep lines reasonable.** Lines should be at most 100 columns wide.
-- **Use snake_case Python filenames.** Python file basenames should match
-  `snake_case` (lowercase letters, digits, and underscores).
+- **`print()`보다 로깅을 쓴다.** 진단 출력은 `print()`가 아니라 `logging`
+  모듈에 둔다. 소스 파일에서 `print()`는 금지다.
+- **import는 명시적으로 — 와일드카드 금지.** `from module import *`는 절대 쓰지 않는다.
+  쓰는 이름만 골라서 import해야 의존성이 드러나고 도구도 제대로 돈다.
+- **모듈 docstring을 쓴다.** 모든 모듈은 무엇이 들었는지 설명하는 `"""docstring"""`으로
+  시작한다.
+- **줄 길이는 적당히.** 한 줄은 최대 100칸까지다.
+- **파이썬 파일명은 snake_case로.** 파이썬 파일 베이스명은
+  `snake_case`(소문자·숫자·밑줄)에 맞춘다.
 
 ## Rules (machine-readable)
 

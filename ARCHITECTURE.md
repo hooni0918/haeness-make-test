@@ -1,34 +1,32 @@
 # Architecture
 
-This is a small, layered Python project. It is intentionally simple so that the
-boundaries between layers stay easy to reason about and easy to enforce.
+작고 계층이 나뉜 파이썬 프로젝트다. 계층 사이의 경계를 따지기 쉽고
+강제하기 쉽도록 일부러 단순하게 뒀다.
 
 ## Layers
 
-- **`src/` — domain logic.** This is where the application's behavior lives. The
-  calculator module (`src/calculator.py`) provides the core arithmetic operations
-  (add, subtract, multiply, divide). Domain code is the heart of the project and
-  should remain free of incidental concerns such as printing, file access, or
-  network calls.
-- **`tests/` — pytest test suite.** This layer exercises the domain logic. Tests
-  import from `src/` and verify behavior. They are the consumers of the domain,
-  never the other way around.
+- **`src/` — 도메인 로직.** 애플리케이션의 동작이 사는 곳이다. 계산기
+  모듈(`src/calculator.py`)이 핵심 산술 연산(add, subtract, multiply, divide)을
+  담당한다. 도메인 코드는 이 프로젝트의 심장이고, 출력·파일 접근·네트워크
+  호출 같은 부수적 관심사에서 자유로워야 한다.
+- **`tests/` — pytest 테스트 모음.** 이 계층이 도메인 로직을 실행해본다. 테스트는
+  `src/` 에서 import 해서 동작을 검증한다. 테스트가 도메인을 소비하는 쪽이고,
+  그 반대는 결코 아니다.
 
 ## Architectural rules (prose)
 
-- **`src/` must not import from `tests/`.** The dependency direction flows in one
-  direction only: tests depend on the domain, and the domain stays unaware that
-  any tests exist. A domain module that reaches into the test layer is a design
-  error and should be rejected.
+- **`src/` 는 `tests/` 에서 import 하면 안 된다.** 의존 방향은 한쪽으로만
+  흐른다. 테스트가 도메인에 의존하고, 도메인은 테스트가 존재하는지조차 모른다.
+  도메인 모듈이 테스트 계층으로 손을 뻗는 건 설계 오류이고 거부해야 한다.
 
-- **No business logic in `__init__` files.** Package `__init__.py` modules exist
-  to mark packages and, at most, to re-export public names. They must not contain
-  arithmetic, branching logic, side effects, or any other meaningful behavior.
-  Keep the real logic in dedicated modules where it can be tested directly.
+- **`__init__` 파일에 비즈니스 로직 금지.** 패키지의 `__init__.py` 모듈은
+  패키지를 표시하고, 많아야 공개 이름을 다시 export 하는 정도로 존재한다. 산술,
+  분기 로직, 부수 효과, 그 밖에 의미 있는 동작을 담아선 안 된다.
+  진짜 로직은 직접 테스트할 수 있는 전용 모듈에 둔다.
 
-- **Calculator functions stay pure.** The functions in `src/calculator.py` must be
-  pure: given the same inputs they always return the same outputs, and they
-  perform no I/O and have no side effects. They do not print, log to files, mutate
-  global state, read from disk, or touch the network. They simply take numbers in
-  and return a result. Purity keeps the domain trivially testable and makes the
-  enforced `no-print` convention a natural fit rather than a burden.
+- **계산기 함수는 순수하게 유지한다.** `src/calculator.py` 의 함수들은 순수
+  함수여야 한다. 같은 입력이면 항상 같은 출력을 내고, I/O 도 부수 효과도 없다.
+  출력하지 않고, 파일에 로그를 남기지 않고, 전역 상태를 바꾸지 않고, 디스크를 읽지
+  않고, 네트워크에 손대지 않는다. 그저 숫자를 받아 결과를 돌려줄 뿐이다. 순수함
+  덕분에 도메인은 테스트하기가 더없이 쉽고, 강제되는 `no-print` 컨벤션도 부담이
+  아니라 자연스럽게 맞아떨어진다.
