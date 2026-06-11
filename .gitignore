@@ -8,3 +8,8 @@ venv/
 # --- harness runtime ---
 # Ignore gate logs but keep the .claude/ harness itself tracked.
 .claude/logs/*.log
+
+# Layer 2 generation artifacts (skill candidates are reviewed, then installed
+# into .claude/skills/ — the intermediate build output stays untracked).
+build/
+tools/v9/meta_prompt.candidate.md
