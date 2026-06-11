@@ -279,9 +279,15 @@ def parse_violation(line):
     return {"severity": severity, "gate": gate.strip(), "message": message.strip()}
 
 
+def _error_count(result):
+    """Number of error-severity rule violations recorded so far for a file."""
+    return sum(1 for v in result["violations"] if v["severity"] == "error")
+
+
 def gate_file(rel, content, cfg, gate2_min, gate3_min):
     """Run the enabled gates on one file's content. Returns a per-file result."""
     gates = cfg.get("gates") or {}
+    mode = cfg.get("mode") or "enforce"
     result = {
         "file": rel,
         "violations": [],
@@ -312,9 +318,15 @@ def gate_file(rel, content, cfg, gate2_min, gate3_min):
         for ln in g1_lines:
             result["violations"].append(parse_violation(ln))
 
+        # Token-saving short-circuit (mirrors router.sh): in enforce mode an
+        # error from a cheaper gate already decides REJECTED, so the LLM
+        # gates are skipped. Warn mode still runs them for a full report.
+        def _short_circuit():
+            return mode == "enforce" and _error_count(result) > 0
+
         # Gate 2 — enabled + size threshold.
         g2 = gates.get("gate2") or {}
-        if g2.get("enabled") and change_lines >= gate2_min:
+        if not _short_circuit() and g2.get("enabled") and change_lines >= gate2_min:
             env2 = dict(env)
             env2["HES_GATE2_MODEL"] = str(g2.get("model") or "")
             g2_lines, g2_err = run_gate(GATE2, env2)
@@ -325,7 +337,7 @@ def gate_file(rel, content, cfg, gate2_min, gate3_min):
 
         # Gate 3 — enabled + size threshold.
         g3 = gates.get("gate3") or {}
-        if g3.get("enabled") and change_lines >= gate3_min:
+        if not _short_circuit() and g3.get("enabled") and change_lines >= gate3_min:
             env3 = dict(env)
             env3["HES_GATE3_MODEL"] = str(g3.get("model") or "")
             g3_lines, g3_err = run_gate(GATE3, env3)

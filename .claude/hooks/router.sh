@@ -113,6 +113,12 @@ append_violations() {
   fi
 }
 
+count_errors() {
+  # $1 = violations block; prints the number of error-severity lines.
+  [ -n "${1:-}" ] || { echo 0; return 0; }
+  printf '%s\n' "$1" | grep -c '^error|' || true
+}
+
 # h. Gate 1 — always run (the only HARD guarantee).
 g1="$(bash "${SELF_DIR}/gate1-shell.sh" || true)"
 append_violations "$g1"
@@ -125,20 +131,35 @@ gate3_min="$(jq -r '.thresholds.gate3_min_lines // 200' "$CONFIG")"
 case "$gate2_min" in ''|*[!0-9]*) gate2_min=50 ;; esac
 case "$gate3_min" in ''|*[!0-9]*) gate3_min=200 ;; esac
 
+# Token-saving short-circuit: in enforce mode an error-severity violation
+# from a cheaper gate already decides DENY, so the LLM gates are skipped —
+# the ladder stops at the first failing rung. In warn mode nothing blocks,
+# so every enabled gate still runs to keep the inform summary complete.
+errors_so_far="$(count_errors "$VIOLATIONS")"
+
 # i. Gate 2 — enabled + size threshold.
 gate2_enabled="$(jq -r '.gates.gate2.enabled // false' "$CONFIG")"
 if [ "$gate2_enabled" = "true" ] && [ "$change_lines" -ge "$gate2_min" ]; then
-  export HES_GATE2_MODEL="$(jq -r '.gates.gate2.model // empty' "$CONFIG")"
-  g2="$(bash "${SELF_DIR}/gate2-semantic.sh" || true)"
-  append_violations "$g2"
+  if [ "$mode" = "enforce" ] && [ "$errors_so_far" -gt 0 ]; then
+    hes_log "router" "info" "short-circuit: ${errors_so_far} error(s) before gate2 -> skipping gate2"
+  else
+    export HES_GATE2_MODEL="$(jq -r '.gates.gate2.model // empty' "$CONFIG")"
+    g2="$(bash "${SELF_DIR}/gate2-semantic.sh" || true)"
+    append_violations "$g2"
+    errors_so_far="$(count_errors "$VIOLATIONS")"
+  fi
 fi
 
 # j. Gate 3 — enabled + size threshold.
 gate3_enabled="$(jq -r '.gates.gate3.enabled // false' "$CONFIG")"
 if [ "$gate3_enabled" = "true" ] && [ "$change_lines" -ge "$gate3_min" ]; then
-  export HES_GATE3_MODEL="$(jq -r '.gates.gate3.model // empty' "$CONFIG")"
-  g3="$(bash "${SELF_DIR}/gate3-architect.sh" || true)"
-  append_violations "$g3"
+  if [ "$mode" = "enforce" ] && [ "$errors_so_far" -gt 0 ]; then
+    hes_log "router" "info" "short-circuit: ${errors_so_far} error(s) before gate3 -> skipping gate3"
+  else
+    export HES_GATE3_MODEL="$(jq -r '.gates.gate3.model // empty' "$CONFIG")"
+    g3="$(bash "${SELF_DIR}/gate3-architect.sh" || true)"
+    append_violations "$g3"
+  fi
 fi
 
 # k. Count error-severity violations.
