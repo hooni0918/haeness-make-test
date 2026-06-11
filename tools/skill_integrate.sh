@@ -32,6 +32,20 @@ if ! declare -F hes_log >/dev/null 2>&1; then
   hes_log() { printf '[log] %s | %s | %s\n' "${1:-?}" "${2:-?}" "${3:-}" >&2; }
 fi
 
+# --- run telemetry (feeds the Layer 2 self-improvement loop) ------------------
+# One JSON line per outcome into the runs log. NEVER fails the bridge.
+RUNS_FILE="${HES_RUNS_FILE:-${ROOT}/.claude/logs/v9_runs.jsonl}"
+log_run() { # $1 = status, $2 = detail
+  {
+    mkdir -p "$(dirname "$RUNS_FILE")" 2>/dev/null &&
+      jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg candidate "${CANDIDATE:-}" --arg name "${SKILL_NAME:-}" \
+        --arg status "$1" --arg detail "${2:-}" \
+        '{ts:$ts,kind:"integrate",candidate:$candidate,name:$name,status:$status,detail:$detail}' \
+        >>"$RUNS_FILE"
+  } 2>/dev/null || true
+}
+
 # --- temp workspace (normalized candidate lands here) -----------------------
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/hes_skill_integrate.XXXXXX")"
 cleanup() { rm -rf "$WORKDIR" 2>/dev/null || true; }
@@ -85,6 +99,7 @@ printf '%s\n' "$ADAPTER_OUT"
 
 if [ "$ADAPTER_RC" -ne 0 ]; then
   hes_log "layer4" "error" "adapter rejected candidate: $CANDIDATE"
+  log_run "adapter-invalid" "exit ${ADAPTER_RC}"
   die "adapter reports the candidate is INVALID (exit ${ADAPTER_RC}); not integrating." "$ADAPTER_RC"
 fi
 [ -f "$NORMALIZED" ] || die "adapter reported valid but produced no normalized candidate."
@@ -99,6 +114,7 @@ printf '[b] CONFLICT: checking for an existing skill named %s ...\n' "$SKILL_NAM
 SKILL_DIR="${ROOT}/.claude/skills/${SKILL_NAME}"
 if [ -e "$SKILL_DIR" ]; then
   hes_log "layer4" "error" "name collision for skill: $SKILL_NAME"
+  log_run "conflict" "$SKILL_DIR"
   die "a skill named '${SKILL_NAME}' already exists at ${SKILL_DIR}; refusing to overwrite." 2
 fi
 printf '    -> no collision.\n\n'
@@ -119,6 +135,7 @@ if [ -d "${ROOT}/tests" ] && [ -n "$PYTEST_BIN" ]; then
   ( cd "$ROOT" && $PYTEST_BIN -q ) || PYTEST_RC=$?
   if [ "$PYTEST_RC" -ne 0 ]; then
     hes_log "layer4" "error" "regression suite FAILED before installing $SKILL_NAME"
+    log_run "regression-failed" "pytest exit ${PYTEST_RC}"
     die "regression suite FAILED (pytest exit ${PYTEST_RC}); a new skill must not break the repo." "$PYTEST_RC"
   fi
   printf '    -> regression suite PASSED.\n\n'
@@ -156,6 +173,7 @@ if [ "$APPROVE" != "true" ]; then
   printf '[e] HUMAN GATE: --approve was NOT passed. NOT installing.\n'
   printf '    Re-run with --approve to install.\n'
   hes_log "layer4" "info" "human gate held skill $SKILL_NAME (no --approve)"
+  log_run "held" "human gate (no --approve)"
   exit 0
 fi
 printf '[e] HUMAN GATE: --approve passed; proceeding to install.\n\n'
@@ -166,4 +184,5 @@ mkdir -p "$SKILL_DIR"
 cp "$NORMALIZED" "${SKILL_DIR}/SKILL.md"
 printf '    -> installed: %s/SKILL.md\n' "$SKILL_DIR"
 hes_log "layer4" "info" "installed skill $SKILL_NAME at ${SKILL_DIR}/SKILL.md"
+log_run "installed" "${SKILL_DIR}/SKILL.md"
 exit 0

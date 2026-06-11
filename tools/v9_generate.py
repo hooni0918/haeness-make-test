@@ -18,6 +18,12 @@ Two different reliability contracts on purpose (mirrors the gate runtime):
 The final candidate MUST pass the Layer-3 structural validation
 (``skill_adapter.validate_and_normalize``) or this tool exits 1.
 
+Every run appends one JSON line to the runs log (``$HES_RUNS_FILE`` or
+``.claude/logs/v9_runs.jsonl``) — this telemetry is what closes the
+self-improvement loop: ``v9_improve.py`` feeds recent failures back into the
+next meta-prompt proposal, and ``v9_eval.py`` scores prompt versions against
+a fixed goal set.
+
 Output: progress lines go to **stderr**; a single JSON summary goes to
 **stdout** (pipeable), e.g.::
 
@@ -25,26 +31,30 @@ Output: progress lines go to **stderr**; a single JSON summary goes to
 
 Usage:
     python3 tools/v9_generate.py "<goal>" [--out PATH] [--rounds N]
-        [--model MODEL] [--claude-cmd CMD] [--timeout SECONDS]
+        [--meta-prompt PATH] [--model MODEL] [--claude-cmd CMD]
+        [--timeout SECONDS]
 
 Prompt kinds carry a sentinel header ("### V9:GENERATE ###" etc.) so tests
 can stub the model CLI deterministically and operators can grep transcripts.
 """
 
 import argparse
+import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPT_DIR)
-META_PROMPT_PATH = os.path.join(SCRIPT_DIR, "v9", "meta_prompt.md")
 CONFIG_PATH = os.path.join(ROOT, ".claude", "config.json")
 DEFAULT_OUT_DIR = os.path.join(ROOT, "build", "candidates")
 DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_TIMEOUT = 240
+
+VERSION_RE = re.compile(r"^version:\s*(\d+)\s*$", re.MULTILINE)
 
 sys.path.insert(0, SCRIPT_DIR)
 from skill_adapter import validate_and_normalize  # noqa: E402  (Layer 3 reuse)
@@ -57,6 +67,49 @@ REVISE_SENTINEL = "### V9:REVISE ###"
 def _eprint(msg):
     """Progress/diagnostics to stderr (stdout is reserved for the JSON summary)."""
     sys.stderr.write("{}\n".format(msg))
+
+
+# --- shared Layer-2 plumbing (also imported by v9_improve / v9_eval) ----------
+def v9_dir():
+    """The directory holding the live meta-prompt (env-overridable for tests)."""
+    return os.environ.get("HES_V9_DIR") or os.path.join(SCRIPT_DIR, "v9")
+
+
+def default_meta_path():
+    return os.path.join(v9_dir(), "meta_prompt.md")
+
+
+def read_version(text):
+    """Extract the integer after the ``version:`` line, or None."""
+    m = VERSION_RE.search(text)
+    return int(m.group(1)) if m else None
+
+
+def runs_file():
+    return os.environ.get("HES_RUNS_FILE") or os.path.join(
+        ROOT, ".claude", "logs", "v9_runs.jsonl"
+    )
+
+
+def append_run(record):
+    """Append one telemetry record to the runs log. NEVER raises — telemetry
+    must not be able to break the pipeline it observes."""
+    try:
+        path = runs_file()
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        record = dict(record)
+        record.setdefault(
+            "ts",
+            datetime.datetime.now(datetime.timezone.utc).isoformat(
+                timespec="seconds"
+            ),
+        )
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except (OSError, ValueError):
+        pass
 
 
 def resolve_model(cli_model):
@@ -182,6 +235,67 @@ def structural_problems(candidate):
     return list(result["problems"]), result
 
 
+def run_generation(goal, meta, model, claude_cmd, timeout, rounds):
+    """The Layer-2 core: generate + quality loop. Used by the CLI and by the
+    eval harness (which replays the SAME code path for both prompt versions).
+
+    Returns (summary, normalized_text). ``summary["valid"]`` False means
+    ``normalized_text`` is None. Raises RuntimeError when generation or
+    revision fails (fail-loud).
+    """
+    notes = []
+    candidate = strip_outer_fence(
+        call_model(build_generate_prompt(meta, goal), model, claude_cmd, timeout)
+    )
+
+    rounds_used = 0
+    problems = []
+    for round_no in range(rounds + 1):
+        struct_problems, _ = structural_problems(candidate)
+        sem_problems, note = critique(meta, candidate, model, claude_cmd, timeout)
+        if note:
+            notes.append(note)
+            _eprint("[critique] {}".format(note))
+        problems = struct_problems + sem_problems
+        if not problems:
+            break
+        if round_no >= rounds:
+            _eprint(
+                "[quality] {} problem(s) remain after {} round(s)".format(
+                    len(problems), rounds_used
+                )
+            )
+            break
+        _eprint(
+            "[revise] round {}: fixing {} problem(s)".format(
+                round_no + 1, len(problems)
+            )
+        )
+        candidate = strip_outer_fence(
+            call_model(
+                build_revise_prompt(meta, candidate, problems),
+                model,
+                claude_cmd,
+                timeout,
+            )
+        )
+        rounds_used += 1
+
+    result, normalized = validate_and_normalize(candidate)
+    summary = {
+        "valid": result["valid"],
+        "name": result["name"],
+        "description": result["description"],
+        "goal": goal,
+        "model": model,
+        "meta_version": read_version(meta),
+        "rounds_used": rounds_used,
+        "problems": problems,
+        "notes": notes,
+    }
+    return summary, normalized
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="v9_generate.py",
@@ -199,6 +313,11 @@ def main(argv=None):
         type=int,
         default=2,
         help="max critique->revise rounds after the initial generation (default 2)",
+    )
+    parser.add_argument(
+        "--meta-prompt",
+        default=None,
+        help="meta-prompt file to use (default: tools/v9/meta_prompt.md)",
     )
     parser.add_argument("--model", default=None, help="model id override")
     parser.add_argument(
@@ -223,90 +342,44 @@ def main(argv=None):
             )
         )
         return 2
-    if not os.path.isfile(META_PROMPT_PATH):
-        _eprint("error: meta prompt not found at {}".format(META_PROMPT_PATH))
+    meta_path = args.meta_prompt or default_meta_path()
+    if not os.path.isfile(meta_path):
+        _eprint("error: meta prompt not found at {}".format(meta_path))
         return 2
-    with open(META_PROMPT_PATH, "r", encoding="utf-8") as fh:
+    with open(meta_path, "r", encoding="utf-8") as fh:
         meta = fh.read()
 
     model = resolve_model(args.model)
-    notes = []
-
-    # --- GENERATE (fail-loud) -------------------------------------------------
     _eprint("[generate] model={} goal={!r}".format(model, args.goal[:80]))
     try:
-        candidate = strip_outer_fence(
-            call_model(
-                build_generate_prompt(meta, args.goal),
-                model,
-                args.claude_cmd,
-                args.timeout,
-            )
+        summary, normalized = run_generation(
+            args.goal, meta, model, args.claude_cmd, args.timeout, args.rounds
         )
     except RuntimeError as exc:
         _eprint("error: generation failed: {}".format(exc))
+        append_run(
+            {"kind": "generate", "goal": args.goal, "valid": False, "error": str(exc)}
+        )
         return 2
 
-    # --- quality loop: validate + critique -> revise ---------------------------
-    rounds_used = 0
-    problems = []
-    for round_no in range(args.rounds + 1):
-        struct_problems, result = structural_problems(candidate)
-        sem_problems, note = critique(
-            meta, candidate, model, args.claude_cmd, args.timeout
-        )
-        if note:
-            notes.append(note)
-            _eprint("[critique] {}".format(note))
-        problems = struct_problems + sem_problems
-        if not problems:
-            break
-        if round_no >= args.rounds:
-            _eprint(
-                "[quality] {} problem(s) remain after {} round(s)".format(
-                    len(problems), rounds_used
-                )
-            )
-            break
-        _eprint(
-            "[revise] round {}: fixing {} problem(s)".format(
-                round_no + 1, len(problems)
-            )
-        )
-        try:
-            candidate = strip_outer_fence(
-                call_model(
-                    build_revise_prompt(meta, candidate, problems),
-                    model,
-                    args.claude_cmd,
-                    args.timeout,
-                )
-            )
-        except RuntimeError as exc:
-            _eprint("error: revision failed: {}".format(exc))
-            return 2
-        rounds_used += 1
-
-    # --- final hard gate: Layer-3 structural validity --------------------------
-    result, normalized = validate_and_normalize(candidate)
-    summary = {
-        "valid": result["valid"],
-        "name": result["name"],
-        "description": result["description"],
-        "goal": args.goal,
-        "model": model,
-        "rounds_used": rounds_used,
-        "problems": problems,
-        "notes": notes,
-        "out": None,
-    }
-    if not result["valid"]:
+    summary["out"] = None
+    if not summary["valid"]:
         _eprint("error: final candidate is structurally INVALID; not writing.")
+        append_run(
+            {
+                "kind": "generate",
+                "goal": args.goal,
+                "meta_version": summary["meta_version"],
+                "valid": False,
+                "rounds_used": summary["rounds_used"],
+                "problems": summary["problems"][:10],
+            }
+        )
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 1
 
     out_path = args.out or os.path.join(
-        DEFAULT_OUT_DIR, "{}.md".format(result["name"])
+        DEFAULT_OUT_DIR, "{}.md".format(summary["name"])
     )
     out_path = os.path.abspath(os.path.expanduser(out_path))
     out_dir = os.path.dirname(out_path)
@@ -315,6 +388,18 @@ def main(argv=None):
     with open(out_path, "w", encoding="utf-8") as fh:
         fh.write(normalized)
     summary["out"] = out_path
+    append_run(
+        {
+            "kind": "generate",
+            "goal": args.goal,
+            "meta_version": summary["meta_version"],
+            "valid": True,
+            "name": summary["name"],
+            "rounds_used": summary["rounds_used"],
+            "problems": summary["problems"][:10],
+            "out": out_path,
+        }
+    )
     _eprint("[done] candidate written: {}".format(out_path))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
