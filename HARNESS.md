@@ -181,18 +181,66 @@ jq -nc \
 
 ---
 
-## 다른 레포에 맞추기 (예: iOS / Swift)
+## iOS / Swift 지원 (구현됨)
 
-하네스는 언어를 안 가린다 — 파일 glob과 규칙만 본다.
+하네스는 언어를 안 가린다 — 파일 glob과 정규식 규칙만 본다. 그래서 같은 Layer-0
+게이트가 Swift 컨벤션도 강제한다. 이건 더 이상 가설이 아니다: `*.swift` 규칙이
+`CONVENTIONS.md`에 들어 있고, 깨끗한 SwiftUI 샘플이 `samples/ios/`에 있으며,
+게이트는 그 샘플로 end-to-end 검증되어 있다.
 
-1. **`CONVENTIONS.md`에 Swift rule 블록을 추가한다.** `applies: *.swift`로, 예를 들어:
-   - `\bprint\(`에 `forbid_pattern` → "`print` 말고 `os.Logger`를 써라".
-   - `!\s*$|as!|try!`에 `forbid_pattern` → "force-unwrap / force-cast를 피하라".
-   - `filename_pattern`으로 view 파일은 `View.swift`로 끝나게, 등등.
-   - `max_line_length`로 SwiftLint 설정에 맞춘다.
-2. **하네스를 Swift 소스로 향하게 한다.** `.claude/config.json`의 `source_globs`를 설정한다
-   (예: `["*.swift"]`, 또는 `*.py` 옆에 추가).
-3. **재컴파일:** `python3 tools/parse_conventions.py`.
+**적용 중인 Swift 규칙** (`applies: *.swift`, `rules.json`으로 컴파일됨):
 
-그러면 Gate 1이 0토큰으로 Swift 규칙을 강제하고, Gate 2/3은 큰 Swift diff를 Python에서와 똑같이
-리뷰한다. `settings.json`의 연결과 라우터는 손댈 게 없다.
+| id | severity | 잡는 것 |
+|----|----------|---------|
+| `swift-no-print` | error | `print(` — `os.Logger`를 쓸 것 |
+| `swift-no-force-cast` | error | `as!` 강제 캐스트 |
+| `swift-no-force-try` | error | `try!` 강제 try |
+| `swift-no-force-unwrap` | warn | 휴리스틱 강제 언래핑 `x!` |
+| `swift-max-line-120` | warn | 120자 초과 줄 (SwiftLint 기본값) |
+
+**크로스 엔진 정규식.** 토큰 규칙은 BSD grep·GNU grep·ugrep 세 엔진에서 모두 도는
+분기형(`^kw!|[^word]kw!`)으로 작성했다. 주의: 로컬 `grep`이 ugrep이면 `(^|[^…])`
+그룹이 일부 키워드(특히 0열의 `try!`)를 조용히 놓친다 — 분기형이 의도적인 이유다.
+실전의 전부인 들여쓰기된 Swift는 세 엔진 모두에서 잡힌다.
+
+**직접 검증:**
+
+```bash
+# 깨끗한 SwiftUI 샘플 -> 무출력 allow
+jq -nc --arg fp "$PWD/samples/ios/Sources/CounterFeature/CounterView.swift" \
+  --rawfile c samples/ios/Sources/CounterFeature/CounterView.swift \
+  '{tool_name:"Write",tool_input:{file_path:$fp,content:$c}}' \
+| bash .claude/hooks/router.sh          # 출력 없음 = allow
+
+# print / 강제 캐스트 / 강제 try -> deny
+jq -nc --arg fp "$PWD/Bad.swift" \
+  --arg c $'func f() {\n    print("x")\n    let s = a as! String\n    let d = try! load()\n}\n' \
+  '{tool_name:"Write",tool_input:{file_path:$fp,content:$c}}' \
+| bash .claude/hooks/router.sh          # permissionDecision: deny
+```
+
+Swift 규칙을 추가/변경하려면 `CONVENTIONS.md`의 `*.swift` rule 블록을 고치고
+`python3 tools/parse_conventions.py`를 다시 돌린다. `.claude/config.json`의
+`source_globs`에는 `*.swift`가 이미 들어 있다 — `settings.json`과 라우터는 손댈 게 없다.
+
+---
+
+## 규칙을 측정한다 (정밀도 / 재현율)
+
+로그는 게이트가 *무엇을 했는지*는 말해주지만 규칙의 *오탐율*은 말해주지 못한다 —
+`gates.log`에는 정답(ground truth)이 없기 때문이다. `tools/bench_rules.py`가 그걸
+공급한다: 모든 스니펫에 "발화해야 할 규칙 id"가 라벨링된 코퍼스
+(`tools/bench/rule_fixtures.json`) 위로 진짜 Gate 1을 돌린다 — 아무것도 발화하면
+안 되는 까다로운 클린 케이스(`x != y`, `!flag`, `as?`, `try await`, `reprint(`)까지 포함해서.
+
+```bash
+python3 tools/bench_rules.py          # 규칙별 TP/FP/FN, 정밀도, 재현율
+python3 tools/bench_rules.py --json   # 머신 가독
+```
+
+`hes_controller.py`와 같은 `HES_*` 계약으로 게이트를 재사용하며(규칙 로직 재구현
+없음), **어느 규칙이든 오탐이나 미탐이 하나라도 있으면 non-zero로 종료한다** —
+"모든 규칙 정밀도/재현율 1.00, FP 0, FN 0"이 강제 가능한 기준선이고,
+`tests/test_rules_bench.py`로 `pytest`에 연결되어 있다. 규칙을 추가했다면 픽스처도
+추가하라(발화해야 하는 케이스 *그리고* 발화하면 안 되는 까다로운 케이스). 규칙은
+감이 아니라 측정으로 결정한다.

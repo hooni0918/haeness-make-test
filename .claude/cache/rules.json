@@ -51,6 +51,56 @@
       "type": "filename_pattern",
       "pattern": "^[a-z_][a-z0-9_]*\\.py$",
       "message": "Python files should be snake_case"
+    },
+    {
+      "id": "swift-no-print",
+      "severity": "error",
+      "applies": [
+        "*.swift"
+      ],
+      "type": "forbid_pattern",
+      "pattern": "(^|[^a-zA-Z_.])print[[:space:]]*\\(",
+      "message": "print() 는 금지입니다. os의 Logger 를 사용하세요"
+    },
+    {
+      "id": "swift-no-force-cast",
+      "severity": "error",
+      "applies": [
+        "*.swift"
+      ],
+      "type": "forbid_pattern",
+      "pattern": "(^as!|[^A-Za-z0-9_]as!)",
+      "message": "강제 캐스트(as!) 는 금지입니다. as? 와 옵셔널 바인딩을 쓰세요"
+    },
+    {
+      "id": "swift-no-force-try",
+      "severity": "error",
+      "applies": [
+        "*.swift"
+      ],
+      "type": "forbid_pattern",
+      "pattern": "(^try!|[^A-Za-z0-9_]try!)",
+      "message": "강제 try(try!) 는 금지입니다. do/catch 또는 try? 를 쓰세요"
+    },
+    {
+      "id": "swift-no-force-unwrap",
+      "severity": "warn",
+      "applies": [
+        "*.swift"
+      ],
+      "type": "forbid_pattern",
+      "pattern": "[]A-Za-z0-9_)]!([^=]|$)",
+      "message": "강제 언래핑(!) 의심. 옵셔널 바인딩이나 guard 로 대체할 수 있는지 검토하세요"
+    },
+    {
+      "id": "swift-max-line-120",
+      "severity": "warn",
+      "applies": [
+        "*.swift"
+      ],
+      "type": "max_line_length",
+      "max": 120,
+      "message": "줄이 120자를 초과합니다 (SwiftLint 기본값)"
     }
   ]
 }

@@ -1,0 +1,113 @@
+{
+  "_comment": "HES 규칙 벤치마크용 라벨 코퍼스. 각 케이스는 코드 조각 + 그 조각이 발동시켜야 하는 규칙 id 목록(expect). bench_rules.py 가 실제 Gate 1 을 돌려 발동 규칙을 측정하고 expect 와 대조해 규칙별 정밀도/재현율, 오탐(FP)/누락(FN) 을 낸다. clean 케이스는 expect=[] (아무 규칙도 발동하면 안 됨). dirty/clean 양쪽을 다 둬서 재현율뿐 아니라 오탐도 잡는다.",
+  "fixtures": [
+    {
+      "id": "swift-print-basic",
+      "basename": "Sample.swift",
+      "expect": ["swift-no-print"],
+      "content": "func load() {\n    print(\"loading\")\n}\n"
+    },
+    {
+      "id": "swift-force-cast",
+      "basename": "Sample.swift",
+      "expect": ["swift-no-force-cast", "swift-no-force-unwrap"],
+      "content": "let name = payload as! String\n"
+    },
+    {
+      "id": "swift-force-try",
+      "basename": "Sample.swift",
+      "expect": ["swift-no-force-try", "swift-no-force-unwrap"],
+      "content": "let data = try! Data(contentsOf: url)\n"
+    },
+    {
+      "id": "swift-force-unwrap-trailing",
+      "basename": "Sample.swift",
+      "expect": ["swift-no-force-unwrap"],
+      "content": "let first = items.first!\n"
+    },
+    {
+      "id": "swift-force-unwrap-subscript",
+      "basename": "Sample.swift",
+      "expect": ["swift-no-force-unwrap"],
+      "content": "let value = cache[key]!.title\n"
+    },
+    {
+      "id": "swift-long-line",
+      "basename": "Sample.swift",
+      "expect": ["swift-max-line-120"],
+      "content": "let bannerMessage = \"this is a deliberately long single line that exists only to verify the 120 column SwiftLint style rule fires inside the gate\"\n"
+    },
+    {
+      "id": "swift-clean-logger",
+      "basename": "Sample.swift",
+      "expect": [],
+      "content": "logger.debug(\"count: \\(count)\")\n"
+    },
+    {
+      "id": "swift-clean-guard-not",
+      "basename": "Sample.swift",
+      "expect": [],
+      "content": "guard !items.isEmpty else { return }\n"
+    },
+    {
+      "id": "swift-clean-not-equal",
+      "basename": "Sample.swift",
+      "expect": [],
+      "content": "if count != 0 { return }\n"
+    },
+    {
+      "id": "swift-clean-optional-cast",
+      "basename": "Sample.swift",
+      "expect": [],
+      "content": "let v = json[\"k\"] as? String\n"
+    },
+    {
+      "id": "swift-clean-try-await",
+      "basename": "Sample.swift",
+      "expect": [],
+      "content": "let r = try await fetch()\n"
+    },
+    {
+      "id": "swift-clean-reprint",
+      "basename": "Sample.swift",
+      "expect": [],
+      "content": "func reprint() { }\n"
+    },
+    {
+      "id": "py-print",
+      "basename": "mod.py",
+      "expect": ["no-print"],
+      "content": "\"\"\"m.\"\"\"\nprint(\"x\")\n"
+    },
+    {
+      "id": "py-wildcard-import",
+      "basename": "mod.py",
+      "expect": ["no-wildcard-import"],
+      "content": "\"\"\"m.\"\"\"\nfrom os import *\n"
+    },
+    {
+      "id": "py-no-docstring",
+      "basename": "mod.py",
+      "expect": ["module-docstring"],
+      "content": "x = 1\n"
+    },
+    {
+      "id": "py-bad-filename",
+      "basename": "BadName.py",
+      "expect": ["py-snake-case-file"],
+      "content": "\"\"\"m.\"\"\"\n"
+    },
+    {
+      "id": "py-long-line",
+      "basename": "mod.py",
+      "expect": ["max-line-100"],
+      "content": "\"\"\"m.\"\"\"\nvalue = \"this is a long python line that exists only to verify the one hundred column max length rule fires\"\n"
+    },
+    {
+      "id": "py-clean",
+      "basename": "good_mod.py",
+      "expect": [],
+      "content": "\"\"\"m.\"\"\"\nimport os\n\n\ndef f():\n    return os.getpid()\n"
+    }
+  ]
+}
