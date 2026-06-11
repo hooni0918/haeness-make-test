@@ -211,23 +211,57 @@ bash tools/install-git-hooks.sh
 
 ---
 
-## 스킬 파이프라인 (Layer 3/4)
+## 스킬 파이프라인 (Layer 2/3/4)
 
-v9 메타프롬프트가 만든 결과물을 **스킬 후보**로 변환하고, HES 게이트를 거쳐 통합하는 흐름이다.
+v9 메타프롬프트로 스킬 후보를 **생성**하고(Layer 2), 검증·정규화를 거쳐(Layer 3),
+HES 게이트 + 사람 승인으로 통합(Layer 4)하는 흐름이다.
+
+### 한 명령으로 (오케스트레이터)
 
 ```bash
-# 1) 마크다운 → 스킬 후보로 변환
+# 생성 → 품질루프 → 검증 → AI리뷰 → 사람 게이트에서 정지 (dry-run; 아무것도 설치 안 함)
+bash tools/skill_pipeline.sh "파이썬 파일 수정 시 import 정리하는 스킬"
+
+# 검토 후 실제 설치 (--approve = Gate 4 사람 승인)
+bash tools/skill_pipeline.sh "..." --approve
+```
+
+> 생성(Layer 2)은 `claude` CLI 가 필요하고 **fail-loud** 다 — 게이트(fail-open)와 달리,
+> 모델 없이는 만들 게 없으므로 크게 실패한다. 생성 모델은 `--model` > `HES_V9_MODEL` >
+> config `gates.gate3.model` 순으로 고른다.
+
+### 단계별로
+
+```bash
+# 1) Layer 2 — 후보 생성 + 1차 품질루프 (비평→수정, 기본 2라운드)
+python3 tools/v9_generate.py "<goal>" [--rounds N] [--out PATH]
+#    → stderr 에 진행 로그, stdout 에 JSON 요약({"out": <후보 경로>, ...})
+
+# 2) Layer 3 — 구조 검증·정규화만 따로 돌릴 때
 python3 tools/skill_adapter.py <md>
 
-# 2) 통합 검증 (dry-run: verdict 만 보여주고 아무것도 설치 안 함)
+# 3) Layer 4 — 통합 검증 (dry-run: verdict 만 보여주고 아무것도 설치 안 함)
 bash tools/skill_integrate.sh <candidate.md>
 
-# 3) 실제 설치 — 반드시 --approve 가 있어야만 설치됨 (사람 게이트 = Gate 4)
+# 4) 실제 설치 — 반드시 --approve 가 있어야만 설치됨 (사람 게이트 = Gate 4)
 bash tools/skill_integrate.sh <candidate.md> --approve
 ```
 
 > **`--approve` 없이는 어떤 스킬도 설치되지 않는다.** 검증을 통과하지 못한(또는 사람이 승인하지 않은)
 > 스킬이 시스템에 들어가는 경로는 없다.
+
+### 메타프롬프트 자가개선 (Layer 2 — Auto-Improvement Lane)
+
+v9 메타프롬프트(`tools/v9/meta_prompt.md`) 자체를 개선하는 루프. 모델은 **제안만** 하고,
+승격은 사람이 한다 — 스킬 설치와 똑같은 휴먼 게이트 원칙이다.
+
+```bash
+# 1) 개선안 제안 (모델 호출) → tools/v9/meta_prompt.candidate.md 에 후보 생성
+python3 tools/v9_improve.py [--feedback notes.md]
+
+# 2) 후보를 사람이 검토한 뒤 승격 — 기존 버전은 tools/v9/archive/ 에 보관, version 자동 +1
+python3 tools/v9_improve.py --approve
+```
 
 ---
 
@@ -238,6 +272,8 @@ bash tools/install-git-hooks.sh                              # B: 커밋 게이�
 python3 tools/hes_controller.py --staged                     # C: 스테이지 검사
 python3 tools/hes_controller.py --range main..HEAD --json    # C: PR diff (CI)
 python3 tools/parse_conventions.py                           # 규칙 재컴파일
+bash tools/skill_pipeline.sh "<goal>" [--approve]            # 스킬 생성→통합 (Layer 2→4)
+python3 tools/v9_improve.py [--approve]                      # 메타프롬프트 자가개선
 git commit --no-verify                                       # B: 1회 우회
 tail -f .claude/logs/gates.log                               # A: 로그
 ```
