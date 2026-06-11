@@ -13,3 +13,6 @@ venv/
 # into .claude/skills/ — the intermediate build output stays untracked).
 build/
 tools/v9/meta_prompt.candidate.md
+
+# Layer 2 run telemetry (local feedback data for the self-improvement loop).
+.claude/logs/v9_runs.jsonl
