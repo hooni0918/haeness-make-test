@@ -250,18 +250,33 @@ bash tools/skill_integrate.sh <candidate.md> --approve
 > **`--approve` 없이는 어떤 스킬도 설치되지 않는다.** 검증을 통과하지 못한(또는 사람이 승인하지 않은)
 > 스킬이 시스템에 들어가는 경로는 없다.
 
-### 메타프롬프트 자가개선 (Layer 2 — Auto-Improvement Lane)
+### 메타프롬프트 자가개선 (Layer 2 — eval 이 닫는 루프)
 
-v9 메타프롬프트(`tools/v9/meta_prompt.md`) 자체를 개선하는 루프. 모델은 **제안만** 하고,
-승격은 사람이 한다 — 스킬 설치와 똑같은 휴먼 게이트 원칙이다.
+v9 메타프롬프트(`tools/v9/meta_prompt.md`) 자체를 개선하는 루프.
+**모델은 제안하고, 증거가 승격시키고, 사람이 서명한다.**
 
 ```bash
-# 1) 개선안 제안 (모델 호출) → tools/v9/meta_prompt.candidate.md 에 후보 생성
+# 1) 개선안 제안 — runs.jsonl 의 최근 실패(무효 후보·잔여 문제·반려된 통합)가
+#    자동으로 프롬프트에 환류된다. 운영자 메모는 --feedback 으로 추가.
 python3 tools/v9_improve.py [--feedback notes.md]
+#    → tools/v9/meta_prompt.candidate.md
 
-# 2) 후보를 사람이 검토한 뒤 승격 — 기존 버전은 tools/v9/archive/ 에 보관, version 자동 +1
-python3 tools/v9_improve.py --approve
+# 2) 증거 생산 — 고정 goal set(tools/v9/eval_goals.json)을 챔피언(현행)과
+#    도전자(후보)로 재생해 결정론 신호(구조 유효율→잔여 문제→라운드)로 채점.
+#    동점은 챔피언 유지. exit 0 = 도전자 승.
+python3 tools/v9_eval.py [--goals FILE] [--rounds N]
+#    → build/eval/verdict.json
+
+# 3) 승격 — verdict 가 "도전자 승"일 때만 통과. 진 후보는 거부(--force 로만 우회),
+#    verdict 가 없거나 후보가 바뀌어 stale 이면 경고 후 사람 판단에 맡긴다.
+python3 tools/v9_improve.py --approve [--force]
+#    → 구버전은 tools/v9/archive/ 보관, version 자동 +1
 ```
+
+**기록(텔레메트리):** 생성·통합·eval·승격의 모든 결과는
+`.claude/logs/v9_runs.jsonl`(git 추적 제외, `HES_RUNS_FILE` 로 변경 가능)에
+한 줄 JSON 으로 쌓인다. 이 데이터가 1번의 자동 환류와 2번의 채점을 가능하게 하는
+루프의 연료다.
 
 ---
 
@@ -273,7 +288,10 @@ python3 tools/hes_controller.py --staged                     # C: 스테이지 �
 python3 tools/hes_controller.py --range main..HEAD --json    # C: PR diff (CI)
 python3 tools/parse_conventions.py                           # 규칙 재컴파일
 bash tools/skill_pipeline.sh "<goal>" [--approve]            # 스킬 생성→통합 (Layer 2→4)
-python3 tools/v9_improve.py [--approve]                      # 메타프롬프트 자가개선
+python3 tools/v9_improve.py                                  # 메타프롬프트 개선 제안 (실패 자동 환류)
+python3 tools/v9_eval.py                                     # 챔피언 vs 도전자 eval (증거 생산)
+python3 tools/v9_improve.py --approve                        # 이긴 후보만 승격
+tail -f .claude/logs/v9_runs.jsonl                           # 루프 텔레메트리
 git commit --no-verify                                       # B: 1회 우회
 tail -f .claude/logs/gates.log                               # A: 로그
 ```
