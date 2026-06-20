@@ -1,16 +1,14 @@
 # USAGE.md — 실제로 어떻게 쓰나
 
-HES 게이트 하네스를 **실전에서 돌리는 3가지 방법** + 규칙 수정 / 다른 레포 이식 / 스킬 파이프라인까지,
-복붙 가능한 명령어 중심으로 정리했다. 모든 명령은 **프로젝트 루트**에서 실행한다.
+HES 게이트 하네스를 실전에서 돌리는 3가지 방법, 그리고 규칙 수정과 다른 레포 이식, 스킬 파이프라인까지 복붙 가능한 명령어 중심으로 정리했다. 모든 명령은 프로젝트 루트에서 실행한다.
 
-> 한 줄 요약: 컨벤션·아키텍처를 어긴 코드가 **파일에 닿기 전에**(또는 **커밋되기 전에**) 막는다.
-> Gate 1(grep)은 0 토큰, 항상 동작하는 유일한 하드 게이트. Gate 2/3(LLM)은 기본 OFF·fail-open.
+한 줄 요약: 컨벤션과 아키텍처를 어긴 코드가 파일에 닿기 전에(또는 커밋되기 전에) 막는다. Gate 1(grep)은 0 토큰으로 항상 동작하는 유일한 하드 게이트이고, Gate 2/3(LLM)은 기본 OFF이며 fail-open이다.
 
 ---
 
 ## 3가지 사용 모드 한눈에
 
-| 모드 | 언제 막히나 | 켜는 법 | 막는 주체 |
+| 모드 | 조건 | 켜는 법 | 막는 주체 |
 |------|------------|---------|-----------|
 | **A. Claude Code 안에서 (자동)** | Claude가 `Edit/Write/MultiEdit` 할 때 | 그냥 이 레포를 Claude Code로 연다 | `PreToolUse` 훅 |
 | **B. git commit 마다 (자동)** | `git commit` 할 때 | `bash tools/install-git-hooks.sh` 1회 | pre-commit 훅 |
@@ -22,10 +20,7 @@ A와 B는 서로 독립이다. 둘 다 켜두면 Claude가 쓸 때 1번, 커밋�
 
 ## MODE A — Claude Code 안에서 (자동)
 
-**설정 0.** 이 레포를 Claude Code로 열기만 하면 된다. `.claude/settings.json`이 `PreToolUse` 훅
-(`matcher: Edit|Write|MultiEdit`)을 `.claude/hooks/router.sh`에 이미 연결해 두었다.
-이후 Claude가 소스 파일을 쓸 때마다 **쓰기 직전** 게이트가 자동으로 돈다.
-error 위반이 하나라도 있으면 `permissionDecision: "deny"` → 그 쓰기는 **물리적으로 일어나지 않는다.**
+설정은 따로 없다. 이 레포를 Claude Code로 열기만 하면 된다. `.claude/settings.json`이 `PreToolUse` 훅(`matcher: Edit|Write|MultiEdit`)을 `.claude/hooks/router.sh`에 이미 연결해 두었다. 이후 Claude가 소스 파일을 쓸 때마다 쓰기 직전에 게이트가 자동으로 돈다. error 위반이 하나라도 있으면 `permissionDecision: "deny"`가 되어 그 쓰기는 물리적으로 일어나지 않는다.
 
 ### 수동 테스트 (Claude Code 없이 훅만 검증)
 
@@ -61,9 +56,9 @@ jq -nc \
 | bash .claude/hooks/router.sh
 ```
 
-> `Edit` 페이로드는 `tool_input.new_string`, `MultiEdit`는 `tool_input.edits[]` 를 쓴다. 라우터가 세 형태 모두 처리한다.
+`Edit` 페이로드는 `tool_input.new_string`을, `MultiEdit`는 `tool_input.edits[]`를 쓴다. 라우터가 세 형태 모두 처리한다.
 
-**로그:** 게이트 결정과 fail-open 경고는 `.claude/logs/gates.log` 에 쌓인다(git 추적 제외).
+로그는 `.claude/logs/gates.log`에 쌓인다(git 추적 제외). 게이트 결정과 fail-open 경고가 여기에 남는다.
 
 ```bash
 tail -f .claude/logs/gates.log
@@ -73,15 +68,14 @@ tail -f .claude/logs/gates.log
 
 ## MODE B — git commit 마다 (Claude Code 밖에서)
 
-Claude Code를 안 거치고 직접(또는 다른 에디터로) 커밋해도 막고 싶을 때. **1회만 설치**한다.
+Claude Code를 안 거치고 직접(또는 다른 에디터로) 커밋해도 막고 싶을 때 쓴다. 설치는 1회만 하면 된다.
 
 ```bash
 # pre-commit 훅 설치 (최초 1회)
 bash tools/install-git-hooks.sh
 ```
 
-이후 `git commit` 할 때마다 훅이 `python3 tools/hes_controller.py --staged` 를 돌리고,
-**error 위반이 있으면 커밋을 BLOCK** 한다.
+이후 `git commit` 할 때마다 훅이 `python3 tools/hes_controller.py --staged`를 돌리고, error 위반이 있으면 커밋을 BLOCK 한다.
 
 ```bash
 git add src/calculator.py
@@ -103,7 +97,7 @@ rm "$(git rev-parse --git-path hooks)/pre-commit"
 
 ## MODE C — 배치 / CI / 수동 리뷰
 
-훅 없이 컨트롤러를 직접 호출해 무엇이든 검사한다. 대상 지정 방식 3가지:
+훅 없이 컨트롤러를 직접 호출해 무엇이든 검사한다. 대상 지정 방식은 3가지다.
 
 ```bash
 # 1) 스테이징된 변경 (pre-commit 훅이 내부적으로 쓰는 것과 동일)
@@ -134,9 +128,9 @@ python3 tools/hes_controller.py --staged --ai-review
 | **REVIEW** | warn 위반만 있음 (커밋은 가능, 검토 권장) | 0 |
 | **REJECTED** | error 위반 있음 | **1** |
 
-> CI 게이트로 쓰려면 exit code 1 을 실패로 받으면 된다.
+CI 게이트로 쓰려면 exit code 1을 실패로 받으면 된다.
 
-샘플 출력 — 깨끗한 파일(통과)과 위반 파일(차단):
+샘플 출력은 깨끗한 파일(통과)과 위반 파일(차단)을 나란히 보여준다.
 
 ```text
 $ python3 tools/hes_controller.py --files src/calculator.py
@@ -160,29 +154,27 @@ $ echo $?
 
 ## 규칙 편집 (EDITING RULES)
 
-규칙의 **진실의 원천은 `CONVENTIONS.md`** 의 ```` ```rule ```` 블록이다. 훅은 Markdown이 아니라
-컴파일된 `.claude/cache/rules.json` 을 읽으므로, 규칙을 바꾸면 **반드시 다시 컴파일**한다.
+규칙의 진실의 원천은 `CONVENTIONS.md`의 ```` ```rule ```` 블록이다. 훅은 Markdown이 아니라 컴파일된 `.claude/cache/rules.json`을 읽으므로, 규칙을 바꾸면 반드시 다시 컴파일한다.
 
 ```bash
 # CONVENTIONS.md 의 rule 블록을 수정한 뒤
 python3 tools/parse_conventions.py     # → .claude/cache/rules.json 갱신
 ```
 
-게이트 토글 / 모드는 `.claude/config.json` 에서 바꾼다:
+게이트 토글과 모드는 `.claude/config.json`에서 바꾼다.
 
-- `"mode": "enforce"` — error 위반 시 쓰기/커밋을 **막음**.
-- `"mode": "warn"` — 위반을 **정보로만 출력**하고 통과(새 규칙 점진 도입용).
-- `"gates": { "gate2": { "enabled": true } }` — Haiku 의미 게이트 ON (≥50줄에서만 동작).
-- `"gates": { "gate3": { "enabled": true } }` — Sonnet 아키텍처 게이트 ON (≥200줄에서만 동작).
+- `"mode": "enforce"`는 error 위반 시 쓰기/커밋을 막는다.
+- `"mode": "warn"`은 위반을 정보로만 출력하고 통과시킨다(새 규칙 점진 도입용).
+- `"gates": { "gate2": { "enabled": true } }`는 Haiku 의미 게이트를 ON으로 둔다(≥50줄에서만 동작).
+- `"gates": { "gate3": { "enabled": true } }`는 Sonnet 아키텍처 게이트를 ON으로 둔다(≥200줄에서만 동작).
 
-> `tools/` 와 `tests/` 는 `ignore_path_substrings` 로 게이트 대상에서 제외돼 있다.
-> (CLI 도구가 정당하게 `print()` 를 써도 막히지 않게 하기 위함.)
+`tools/`와 `tests/`는 `ignore_path_substrings`로 게이트 대상에서 제외돼 있다. CLI 도구가 정당하게 `print()`를 써도 막히지 않게 하기 위함이다.
 
 ---
 
 ## 다른 레포에 이식하기 (예: iOS `ios-qube`)
 
-언어 무관 — 글로브와 규칙만 바꾸면 된다.
+언어와 무관하다. 글로브와 규칙만 바꾸면 된다.
 
 ```bash
 # 1) 하네스 일습 복사
@@ -192,7 +184,7 @@ cp -R .claude tools CONVENTIONS.md ARCHITECTURE.md /path/to/ios-qube/
 #    .claude/config.json → "source_globs": ["*.swift"]
 ```
 
-3) `CONVENTIONS.md` 에 `applies: *.swift` rule 블록을 작성한다. 예:
+3) `CONVENTIONS.md`에 `applies: *.swift` rule 블록을 작성한다. 예를 들면 이렇다.
 
 - `forbid_pattern` on `\bprint\(` → "use `os.Logger`, not `print`"
 - `forbid_pattern` on `as!|try!` → "force-cast / force-try 금지"
@@ -207,14 +199,13 @@ python3 tools/parse_conventions.py
 bash tools/install-git-hooks.sh
 ```
 
-`settings.json` / `router.sh` 는 손댈 필요 없다. Gate 1 이 0 토큰으로 Swift 규칙을 강제한다.
+`settings.json`과 `router.sh`는 손댈 필요 없다. Gate 1이 0 토큰으로 Swift 규칙을 강제한다.
 
 ---
 
 ## 스킬 파이프라인 (Layer 2/3/4)
 
-v9 메타프롬프트로 스킬 후보를 **생성**하고(Layer 2), 검증·정규화를 거쳐(Layer 3),
-HES 게이트 + 사람 승인으로 통합(Layer 4)하는 흐름이다.
+v9 메타프롬프트로 스킬 후보를 생성하고(Layer 2), 검증·정규화를 거쳐(Layer 3), HES 게이트와 사람 승인으로 통합(Layer 4)하는 흐름이다.
 
 ### 한 명령으로 (오케스트레이터)
 
@@ -226,9 +217,7 @@ bash tools/skill_pipeline.sh "파이썬 파일 수정 시 import 정리하는 �
 bash tools/skill_pipeline.sh "..." --approve
 ```
 
-> 생성(Layer 2)은 `claude` CLI 가 필요하고 **fail-loud** 다 — 게이트(fail-open)와 달리,
-> 모델 없이는 만들 게 없으므로 크게 실패한다. 생성 모델은 `--model` > `HES_V9_MODEL` >
-> config `gates.gate3.model` 순으로 고른다.
+생성(Layer 2)은 `claude` CLI가 필요하고 fail-loud다. fail-open인 게이트와 달리, 모델 없이는 만들 게 없으므로 크게 실패한다. 생성 모델은 `--model`, `HES_V9_MODEL`, config `gates.gate3.model` 순으로 고른다.
 
 ### 단계별로
 
@@ -247,13 +236,11 @@ bash tools/skill_integrate.sh <candidate.md>
 bash tools/skill_integrate.sh <candidate.md> --approve
 ```
 
-> **`--approve` 없이는 어떤 스킬도 설치되지 않는다.** 검증을 통과하지 못한(또는 사람이 승인하지 않은)
-> 스킬이 시스템에 들어가는 경로는 없다.
+`--approve` 없이는 어떤 스킬도 설치되지 않는다. 검증을 통과하지 못한(또는 사람이 승인하지 않은) 스킬이 시스템에 들어가는 경로는 없다.
 
 ### 메타프롬프트 자가개선 (Layer 2 — eval 이 닫는 루프)
 
-v9 메타프롬프트(`tools/v9/meta_prompt.md`) 자체를 개선하는 루프.
-**모델은 제안하고, 증거가 승격시키고, 사람이 서명한다.**
+v9 메타프롬프트(`tools/v9/meta_prompt.md`) 자체를 개선하는 루프다. 모델은 제안하고, 증거가 승격시키고, 사람이 서명한다.
 
 ```bash
 # 1) 개선안 제안 — runs.jsonl 의 최근 실패(무효 후보·잔여 문제·반려된 통합)가
@@ -273,10 +260,7 @@ python3 tools/v9_improve.py --approve [--force]
 #    → 구버전은 tools/v9/archive/ 보관, version 자동 +1
 ```
 
-**기록(텔레메트리):** 생성·통합·eval·승격의 모든 결과는
-`.claude/logs/v9_runs.jsonl`(git 추적 제외, `HES_RUNS_FILE` 로 변경 가능)에
-한 줄 JSON 으로 쌓인다. 이 데이터가 1번의 자동 환류와 2번의 채점을 가능하게 하는
-루프의 연료다.
+기록(텔레메트리)은 `.claude/logs/v9_runs.jsonl`(git 추적 제외, `HES_RUNS_FILE`로 변경 가능)에 한 줄 JSON으로 쌓인다. 생성·통합·eval·승격의 모든 결과가 여기 남는다. 이 데이터가 1번의 자동 환류와 2번의 채점을 가능하게 하는 루프의 연료다.
 
 ---
 
