@@ -23,8 +23,15 @@ FENCE = "```"
 FENCE_OPEN = "```rule"
 
 # Keys recognized inside a rule block. Anything else is ignored.
-# 'fix' is an optional one-line remediation hint surfaced in the deny reason.
-KNOWN_KEYS = {"id", "severity", "applies", "type", "pattern", "max", "message", "fix"}
+# 'fix'   — optional one-line remediation hint surfaced in the deny reason.
+# 'match' — 'regex' (default) or 'ast'; an 'ast' forbid rule is evaluated by
+#           gate1-ast.py on the whole file in strict mode ('pattern' stays the
+#           non-strict/fragment fallback).
+# 'name'  — for match:ast forbid rules, the called function name to forbid.
+KNOWN_KEYS = {
+    "id", "severity", "applies", "type", "pattern", "max", "message", "fix",
+    "match", "name",
+}
 
 
 def _warn(msg):

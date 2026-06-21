@@ -20,6 +20,8 @@ severity: error
 applies: *.py
 type: forbid_pattern
 pattern: (^|[^a-zA-Z_.])print[[:space:]]*\(
+match: ast
+name: print
 message: print() is forbidden — use the logging module
 fix: replace print(...) with logging.getLogger(__name__).debug(...)
 ```

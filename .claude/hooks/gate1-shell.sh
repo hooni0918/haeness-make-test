@@ -40,6 +40,7 @@ while [ "$i" -lt "$rule_count" ]; do
   max="$(jq -r ".rules[$i].max // empty" "$RULES")"
   message="$(jq -r ".rules[$i].message // empty" "$RULES")"
   fix="$(jq -r ".rules[$i].fix // empty" "$RULES")"
+  match_field="$(jq -r ".rules[$i].match // empty" "$RULES")"
 
   # Fold the optional fix hint into the displayed message so the model gets
   # actionable remediation in the very deny reason it already reads — no extra
@@ -64,13 +65,20 @@ while [ "$i" -lt "$rule_count" ]; do
 
   case "$rtype" in
     forbid_pattern)
-      m="$(grep -nE "$pattern" "$SCAN" || true)"
-      if [ -n "$m" ]; then
-        while IFS= read -r hit; do
-          [ -n "$hit" ] || continue
-          lineno="${hit%%:*}"
-          printf '%s|gate1|[%s] %s (line %s)\n' "$severity" "$id" "$disp" "$lineno"
-        done <<<"$m"
+      # A rule tagged `match: ast` is evaluated by gate1-ast.py on the WHOLE file
+      # in strict mode (FP-free + multiline + alias). Outside strict mode we fall
+      # back to the regex `pattern` here so the change is still gated.
+      if [ "$match_field" = "ast" ] && [ "$STRICT" = "1" ]; then
+        :
+      else
+        m="$(grep -nE "$pattern" "$SCAN" || true)"
+        if [ -n "$m" ]; then
+          while IFS= read -r hit; do
+            [ -n "$hit" ] || continue
+            lineno="${hit%%:*}"
+            printf '%s|gate1|[%s] %s (line %s)\n' "$severity" "$id" "$disp" "$lineno"
+          done <<<"$m"
+        fi
       fi
       ;;
     require_pattern)

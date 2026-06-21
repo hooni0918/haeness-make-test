@@ -46,6 +46,7 @@ ROOT = os.path.dirname(SCRIPT_DIR)
 CONFIG_PATH = os.path.join(ROOT, ".claude", "config.json")
 HOOKS_DIR = os.path.join(ROOT, ".claude", "hooks")
 GATE1 = os.path.join(HOOKS_DIR, "gate1-shell.sh")
+GATE1_AST = os.path.join(HOOKS_DIR, "gate1-ast.py")
 GATE2 = os.path.join(HOOKS_DIR, "gate2-semantic.sh")
 GATE3 = os.path.join(HOOKS_DIR, "gate3-architect.sh")
 AI_REVIEW = os.path.join(SCRIPT_DIR, "ai_review.sh")
@@ -244,16 +245,18 @@ def resolve_files(args):
 
 
 # --- Gate invocation ---------------------------------------------------------
-def run_gate(gate_path, env):
-    """Run a gate script via bash; return (violation_lines, error_or_None).
+def run_gate(gate_path, env, interpreter="bash"):
+    """Run a gate script; return (violation_lines, error_or_None).
 
     A gate's stdout is parsed as pipe-delimited violation lines. Gate1 is the
-    hard gate; gate2/gate3 are fail-open by design (they print nothing on any
-    internal problem), so a non-zero rc here is recorded but never crashes.
+    hard gate; gate2/gate3 and the AST tier are fail-open by design (they print
+    nothing on any internal problem), so a non-zero rc here is recorded but
+    never crashes. `interpreter` is 'bash' for shell gates, 'python3' for the
+    AST gate.
     """
     try:
         proc = subprocess.run(
-            ["bash", gate_path],
+            [interpreter, gate_path],
             cwd=ROOT,
             env=env,
             stdout=subprocess.PIPE,
@@ -294,6 +297,7 @@ def gate_file(rel, content, cfg, gate2_min, gate3_min):
     """Run the enabled gates on one file's content. Returns a per-file result."""
     gates = cfg.get("gates") or {}
     mode = cfg.get("mode") or "enforce"
+    strict = "1" if cfg.get("strict_whole_file") else "0"
     result = {
         "file": rel,
         "violations": [],
@@ -315,6 +319,9 @@ def gate_file(rel, content, cfg, gate2_min, gate3_min):
         env["HES_FILE_PATH"] = rel
         env["HES_BASENAME"] = os.path.basename(rel)
         env["HES_CONTENT_FILE"] = tmp.name
+        # The controller already reads whole-file content, so FULL == content.
+        env["HES_FULL_FILE"] = tmp.name
+        env["HES_STRICT"] = strict
         env["HES_CHANGE_LINES"] = str(change_lines)
 
         # Gate 1 — the only hard gate; always run.
@@ -323,6 +330,15 @@ def gate_file(rel, content, cfg, gate2_min, gate3_min):
             result["errors"].append(g1_err)
         for ln in g1_lines:
             result["violations"].append(parse_violation(ln))
+
+        # AST tier (strict mode, Python files): gate1-shell.sh skips match:ast
+        # forbid rules under strict, so gate1-ast.py evaluates them here.
+        if strict == "1" and os.path.isfile(GATE1_AST) and os.path.basename(rel).lower().endswith(".py"):
+            ast_lines, ast_err = run_gate(GATE1_AST, env, interpreter="python3")
+            if ast_err:
+                result["errors"].append(ast_err)
+            for ln in ast_lines:
+                result["violations"].append(parse_violation(ln))
 
         # Token-saving short-circuit (mirrors router.sh): in enforce mode an
         # error from a cheaper gate already decides REJECTED, so the LLM

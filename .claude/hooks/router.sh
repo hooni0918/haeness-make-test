@@ -173,6 +173,16 @@ count_errors() {
 g1="$(bash "${SELF_DIR}/gate1-shell.sh" || true)"
 append_violations "$g1"
 
+# h1b. AST tier (strict mode, Python files only): evaluates `match: ast` forbid
+# rules on the whole file — FP-free (no comment/string matches), catches
+# multiline and simple aliased calls. gate1-shell.sh skips those rules in strict
+# mode so there is no double-reporting. Fails open if content doesn't parse.
+if [ "$strict" = "1" ] && command -v python3 >/dev/null 2>&1 \
+  && hes_basename_match '*.py' "$base"; then
+  gast="$(python3 "${SELF_DIR}/gate1-ast.py" 2>/dev/null || true)"
+  append_violations "$gast"
+fi
+
 # h2. Staleness: rules.json records the sha256 of the CONVENTIONS.md it was
 # compiled from. If the live source hashes differently, someone edited the
 # rules without recompiling and the gate is silently running stale — surface a

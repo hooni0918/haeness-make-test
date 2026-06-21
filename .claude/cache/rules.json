@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generated_from": "CONVENTIONS.md",
-  "source_sha256": "65f44d6e6326f7b7fa38184a34d9a804321cbcdff7862aeef982160a47b60e1a",
+  "source_sha256": "dc298191d0f4994c5283a1d33920386fe9773df7935dac6f8c8b1436e12e9a4e",
   "rules": [
     {
       "id": "no-print",
@@ -11,6 +11,8 @@
       ],
       "type": "forbid_pattern",
       "pattern": "(^|[^a-zA-Z_.])print[[:space:]]*\\(",
+      "match": "ast",
+      "name": "print",
       "message": "print() is forbidden — use the logging module",
       "fix": "replace print(...) with logging.getLogger(__name__).debug(...)"
     },
