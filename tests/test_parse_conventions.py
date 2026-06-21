@@ -59,6 +59,20 @@ def test_malformed_max_skips_block_and_continues(capsys):
     assert "malformed" in capsys.readouterr().err
 
 
+def test_fix_hint_is_a_known_key():
+    text = (
+        "```rule\n"
+        "id: no-print\n"
+        "type: forbid_pattern\n"
+        "pattern: print\\(\n"
+        "message: no print\n"
+        "fix: use logging.debug(...)\n"
+        "```\n"
+    )
+    rules = parse_rules(text)
+    assert rules[0]["fix"] == "use logging.debug(...)"
+
+
 def test_unknown_keys_are_ignored_with_warning(capsys):
     text = "```rule\nid: k\nbogus: nope\nmessage: m\n```\n"
     rules = parse_rules(text)

@@ -21,6 +21,7 @@ applies: *.py
 type: forbid_pattern
 pattern: (^|[^a-zA-Z_.])print[[:space:]]*\(
 message: print() is forbidden — use the logging module
+fix: replace print(...) with logging.getLogger(__name__).debug(...)
 ```
 
 ```rule
@@ -30,6 +31,7 @@ applies: *.py
 type: forbid_pattern
 pattern: ^[[:space:]]*from[[:space:]]+[^[:space:]]+[[:space:]]+import[[:space:]]+\*
 message: wildcard imports (from x import *) are forbidden
+fix: import only the names you use — from x import a, b
 ```
 
 ```rule
@@ -39,6 +41,7 @@ applies: *.py
 type: require_pattern
 pattern: """
 message: module should start with a docstring
+fix: add a """one-line summary.""" as the first statement of the module
 ```
 
 ```rule
@@ -48,6 +51,7 @@ applies: *.py
 type: max_line_length
 max: 100
 message: line exceeds 100 characters
+fix: wrap the line or extract a variable to stay under 100 columns
 ```
 
 ```rule
@@ -57,6 +61,7 @@ applies: *.py
 type: filename_pattern
 pattern: ^[a-z_][a-z0-9_]*\.py$
 message: Python files should be snake_case
+fix: rename the file to snake_case — lowercase, digits, underscores
 ```
 
 ## Swift / iOS 컨벤션
@@ -78,6 +83,7 @@ applies: *.swift
 type: forbid_pattern
 pattern: (^|[^a-zA-Z_.])print[[:space:]]*\(
 message: print() 는 금지입니다. os의 Logger 를 사용하세요
+fix: os의 Logger 사용 — Logger().debug("...") 로 교체
 ```
 
 ```rule
@@ -87,6 +93,7 @@ applies: *.swift
 type: forbid_pattern
 pattern: (^as!|[^A-Za-z0-9_]as!)
 message: 강제 캐스트(as!) 는 금지입니다. as? 와 옵셔널 바인딩을 쓰세요
+fix: as? 와 옵셔널 바인딩 사용 — if let x = v as? T
 ```
 
 ```rule
@@ -96,6 +103,7 @@ applies: *.swift
 type: forbid_pattern
 pattern: (^try!|[^A-Za-z0-9_]try!)
 message: 강제 try(try!) 는 금지입니다. do/catch 또는 try? 를 쓰세요
+fix: do/catch 로 감싸거나 try? 로 옵셔널 처리
 ```
 
 ```rule
@@ -105,6 +113,7 @@ applies: *.swift
 type: forbid_pattern
 pattern: []A-Za-z0-9_)]!([^=]|$)
 message: 강제 언래핑(!) 의심. 옵셔널 바인딩이나 guard 로 대체할 수 있는지 검토하세요
+fix: if let / guard let 으로 언래핑 (불가피하면 의도를 주석으로 남기기)
 ```
 
 ```rule
@@ -114,4 +123,5 @@ applies: *.swift
 type: max_line_length
 max: 120
 message: 줄이 120자를 초과합니다 (SwiftLint 기본값)
+fix: 줄을 나누거나 변수로 추출해 120칸 이내로
 ```

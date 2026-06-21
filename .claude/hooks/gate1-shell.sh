@@ -31,6 +31,13 @@ while [ "$i" -lt "$rule_count" ]; do
   pattern="$(jq -r ".rules[$i].pattern // empty" "$RULES")"
   max="$(jq -r ".rules[$i].max // empty" "$RULES")"
   message="$(jq -r ".rules[$i].message // empty" "$RULES")"
+  fix="$(jq -r ".rules[$i].fix // empty" "$RULES")"
+
+  # Fold the optional fix hint into the displayed message so the model gets
+  # actionable remediation in the very deny reason it already reads — no extra
+  # round-trip to ask "how do I fix this?".
+  disp="$message"
+  [ -n "$fix" ] && disp="${message} — fix: ${fix}"
 
   # Does this rule apply to the current basename?
   applies="false"
@@ -54,7 +61,7 @@ while [ "$i" -lt "$rule_count" ]; do
         while IFS= read -r hit; do
           [ -n "$hit" ] || continue
           lineno="${hit%%:*}"
-          printf '%s|gate1|[%s] %s (line %s)\n' "$severity" "$id" "$message" "$lineno"
+          printf '%s|gate1|[%s] %s (line %s)\n' "$severity" "$id" "$disp" "$lineno"
         done <<<"$m"
       fi
       ;;
@@ -64,7 +71,7 @@ while [ "$i" -lt "$rule_count" ]; do
       rc=0
       grep -qE "$pattern" "$CONTENT_FILE" 2>/dev/null || rc=$?
       if [ "$rc" -eq 1 ]; then
-        printf '%s|gate1|[%s] %s\n' "$severity" "$id" "$message"
+        printf '%s|gate1|[%s] %s\n' "$severity" "$id" "$disp"
       elif [ "$rc" -ge 2 ]; then
         hes_log "gate1" "warn" "invalid regex in require_pattern rule ${id}"
       fi
@@ -75,7 +82,7 @@ while [ "$i" -lt "$rule_count" ]; do
       if [ -n "$offenders" ]; then
         while IFS= read -r lineno; do
           [ -n "$lineno" ] || continue
-          printf '%s|gate1|[%s] %s (line %s)\n' "$severity" "$id" "$message" "$lineno"
+          printf '%s|gate1|[%s] %s (line %s)\n' "$severity" "$id" "$disp" "$lineno"
         done <<<"$offenders"
       fi
       ;;
@@ -84,7 +91,7 @@ while [ "$i" -lt "$rule_count" ]; do
       rc=0
       printf '%s' "$BASENAME" | grep -qE "$pattern" 2>/dev/null || rc=$?
       if [ "$rc" -eq 1 ]; then
-        printf '%s|gate1|[%s] %s\n' "$severity" "$id" "$message"
+        printf '%s|gate1|[%s] %s\n' "$severity" "$id" "$disp"
       elif [ "$rc" -ge 2 ]; then
         hes_log "gate1" "warn" "invalid regex in filename_pattern rule ${id}"
       fi

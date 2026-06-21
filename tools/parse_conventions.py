@@ -14,6 +14,7 @@ Usage:
     python3 tools/parse_conventions.py
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -22,7 +23,8 @@ FENCE = "```"
 FENCE_OPEN = "```rule"
 
 # Keys recognized inside a rule block. Anything else is ignored.
-KNOWN_KEYS = {"id", "severity", "applies", "type", "pattern", "max", "message"}
+# 'fix' is an optional one-line remediation hint surfaced in the deny reason.
+KNOWN_KEYS = {"id", "severity", "applies", "type", "pattern", "max", "message", "fix"}
 
 
 def _warn(msg):
@@ -146,14 +148,19 @@ def main(argv=None):
         )
         return 1
 
-    with open(conventions_path, "r", encoding="utf-8") as fh:
-        text = fh.read()
+    # Read raw bytes so the embedded hash matches a `shasum`/`sha256sum` of the
+    # file on disk (the gate compares against exactly that).
+    with open(conventions_path, "rb") as fh:
+        raw = fh.read()
+    text = raw.decode("utf-8")
 
     rules = parse_rules(text)
 
     out = {
         "version": 1,
         "generated_from": "CONVENTIONS.md",
+        # Lets the gate detect "CONVENTIONS.md edited but not recompiled".
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
         "rules": rules,
     }
 
