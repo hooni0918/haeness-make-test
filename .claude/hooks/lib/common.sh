@@ -80,3 +80,13 @@ hes_inform() {
   printf '%s\n' "$text"
   exit 0
 }
+
+# hes_stop_block <reason>: emit a Stop "block" decision and exit 0. Stop hooks
+# use a TOP-LEVEL `decision`/`reason` (not the PreToolUse hookSpecificOutput
+# shape); "block" prevents Claude from stopping and feeds the reason back so it
+# fixes the violation before ending the turn.
+hes_stop_block() {
+  local reason="${1:-Blocked by HES Stop rescan}"
+  jq -n --arg r "$reason" '{decision:"block",reason:$r}'
+  exit 0
+}

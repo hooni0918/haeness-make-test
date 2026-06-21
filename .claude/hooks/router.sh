@@ -75,7 +75,8 @@ mode="$(jq -r '.mode // "enforce"' "$CONFIG")"
 # disables every gate. The protected set is HARD-CODED here (not read from
 # config) so it cannot be widened by editing config. Override only via the
 # out-of-band env var HES_ALLOW_SELF_EDIT=1, which the model cannot set through
-# tool_input. Bash/NotebookEdit write paths are still ungated — a known boundary.
+# tool_input. Bash writes to this control plane are pre-blocked by gate-bash.sh;
+# all other Bash/agent file writes are caught post-hoc by gate-stop.sh (Stop).
 if [ "$mode" = "enforce" ] && [ "${HES_ALLOW_SELF_EDIT:-}" != "1" ]; then
   case "$rel" in
     .claude/hooks/*|.claude/cache/rules.json|.claude/config.json|.claude/settings.json|CONVENTIONS.md)
