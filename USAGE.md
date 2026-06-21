@@ -167,8 +167,38 @@ python3 tools/parse_conventions.py     # → .claude/cache/rules.json 갱신
 - `"mode": "warn"`은 위반을 정보로만 출력하고 통과시킨다(새 규칙 점진 도입용).
 - `"gates": { "gate2": { "enabled": true } }`는 Haiku 의미 게이트를 ON으로 둔다(≥50줄에서만 동작).
 - `"gates": { "gate3": { "enabled": true } }`는 Sonnet 아키텍처 게이트를 ON으로 둔다(≥200줄에서만 동작).
+- `"strict_whole_file": true`는 `forbid`/길이 규칙을 **변경 조각이 아니라 결과 파일 전체**에 적용한다(아래 「전체 파일 검사」). 기본 `false`.
 
-`tools/`와 `tests/`는 `ignore_path_substrings`로 게이트 대상에서 제외돼 있다. CLI 도구가 정당하게 `print()`를 써도 막히지 않게 하기 위함이다.
+`tools/`와 `tests/`는 `ignore_path_substrings`로 게이트 대상에서 제외돼 있다. CLI 도구가 정당하게 `print()`를 써도 막히지 않게 하기 위함이다. 이 매칭은 경로 **세그먼트** 기준이라 `src/mytools/x.py`처럼 `tools` 글자가 일부로 들어간 경로는 제외되지 않는다. 소스/무시 매칭은 대소문자를 가리지 않아 `FOO.PY`도 `*.py`로 본다.
+
+### 전체 파일 검사 (`strict_whole_file`)
+
+기본값(`false`)에서 Edit/MultiEdit의 `forbid`·길이 규칙은 **바뀐 조각만** 본다 — 그래서 이미 `print()`가 있는 파일이라도 무관한 줄은 그냥 편집할 수 있다(무회귀).
+
+`true`로 켜면 Edit 시 디스크 내용에 변경을 적용한 **결과 파일 전체**를 검사한다. 멀티라인·기존 위반까지 잡지만, **이미 위반이 있는 파일은 그 위반을 먼저 고치기 전엔 무관한 줄 편집도 막힌다.** 더 엄격한 enforcement를 원할 때만 켠다.
+
+> `require`(예: 모듈 docstring) 규칙은 이 값과 무관하게 **항상 결과 파일 전체**로 검사한다. 한 줄 Edit이 "docstring 없음"으로 오탐하던 문제를 막기 위함이다.
+
+### AST 룰 (`match: ast`) — 정규식 오탐·누락 없애기
+
+`forbid_pattern` 규칙에 `match: ast`와 `name: <함수명>`을 더하면, 그 호출을 정규식이 아니라 파이썬 `ast`로 검출한다. **`strict_whole_file: true`일 때만** 동작하며(전체 파일이 파싱돼야 하므로), 켜지면:
+
+- 주석·문자열 안의 `print(` 같은 **오탐을 안 낸다**(정규식은 글자만 보고 잡는다).
+- **멀티라인 호출**(`print(\n …\n)`)과 **단순 별칭**(`p = print; p(x)`)까지 잡는다.
+- 속성 호출(`obj.print()`)은 정당한 메서드를 오탐하지 않으려고 일부러 제외한다.
+
+`pattern`은 그대로 둔다 — strict가 아닐 때(변경 조각 검사)의 폴백 정규식으로 쓰인다. 파이썬 한정(`applies: *.py`)이며, 내용이 파싱되지 않으면 fail-open(정규식 폴백). 예시 rule 블록:
+
+```
+id: no-print
+severity: error
+applies: *.py
+type: forbid_pattern
+pattern: (^|[^a-zA-Z_.])print[[:space:]]*\(
+match: ast
+name: print
+message: print() is forbidden — use the logging module
+```
 
 ---
 
