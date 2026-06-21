@@ -20,6 +20,14 @@ if [ -z "$CONTENT_FILE" ] || [ ! -f "$CONTENT_FILE" ] || [ ! -f "$RULES" ]; then
   exit 0
 fi
 
+# FULL_FILE = the whole would-be file (router reconstructs it for Edit; for Write
+# and for the batch controller it equals CONTENT_FILE). STRICT selects whether
+# change-scoped rules (forbid/max) look at the change or the whole file.
+FULL_FILE="${HES_FULL_FILE:-$CONTENT_FILE}"
+[ -f "$FULL_FILE" ] || FULL_FILE="$CONTENT_FILE"
+STRICT="${HES_STRICT:-0}"
+if [ "$STRICT" = "1" ]; then SCAN="$FULL_FILE"; else SCAN="$CONTENT_FILE"; fi
+
 rule_count="$(jq -r '.rules | length' "$RULES" 2>/dev/null || echo 0)"
 [ -n "$rule_count" ] || rule_count=0
 
@@ -56,7 +64,7 @@ while [ "$i" -lt "$rule_count" ]; do
 
   case "$rtype" in
     forbid_pattern)
-      m="$(grep -nE "$pattern" "$CONTENT_FILE" || true)"
+      m="$(grep -nE "$pattern" "$SCAN" || true)"
       if [ -n "$m" ]; then
         while IFS= read -r hit; do
           [ -n "$hit" ] || continue
@@ -68,8 +76,11 @@ while [ "$i" -lt "$rule_count" ]; do
     require_pattern)
       # Distinguish "no match" (grep exit 1 -> fire) from a regex ERROR
       # (grep exit >=2 -> skip + log, never a spurious violation/false deny).
+      # require_pattern is a whole-file invariant (e.g. module docstring): always
+      # evaluate the FULL file so a one-line Edit to an already-compliant file
+      # does not false-fire just because the docstring is outside the change.
       rc=0
-      grep -qE "$pattern" "$CONTENT_FILE" 2>/dev/null || rc=$?
+      grep -qE "$pattern" "$FULL_FILE" 2>/dev/null || rc=$?
       if [ "$rc" -eq 1 ]; then
         printf '%s|gate1|[%s] %s\n' "$severity" "$id" "$disp"
       elif [ "$rc" -ge 2 ]; then
@@ -78,7 +89,7 @@ while [ "$i" -lt "$rule_count" ]; do
       ;;
     max_line_length)
       [ -n "$max" ] || max=100
-      offenders="$(awk -v max="$max" 'length($0) > max { print NR }' "$CONTENT_FILE" || true)"
+      offenders="$(awk -v max="$max" 'length($0) > max { print NR }' "$SCAN" || true)"
       if [ -n "$offenders" ]; then
         while IFS= read -r lineno; do
           [ -n "$lineno" ] || continue

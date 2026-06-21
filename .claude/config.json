@@ -1,6 +1,7 @@
 {
   "version": 1,
   "mode": "enforce",
+  "strict_whole_file": false,
   "source_globs": [
     "*.py",
     "*.swift"

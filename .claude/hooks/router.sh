@@ -28,13 +28,18 @@ fi
 # guard below (e.g. '<root>/tools/../src/x.py' really targets src/x.py).
 file_path="$(hes_normpath "$file_path")"
 
-# e. Temp file for proposed content; clean on exit.
+# e. Temp files. CONTENT_FILE = the proposed CHANGE (fragment); FULL_FILE = the
+# whole would-be post-write file. Whole-file rules (require_pattern, AST, and
+# all rules under strict mode) evaluate FULL_FILE; change-scoped forbid/max rules
+# evaluate CONTENT_FILE in the default (non-strict) mode.
 CONTENT_FILE="$(mktemp "${TMPDIR:-/tmp}/hes_content.XXXXXX")"
-trap 'rm -f "$CONTENT_FILE"' EXIT
+FULL_FILE="$(mktemp "${TMPDIR:-/tmp}/hes_full.XXXXXX")"
+trap 'rm -f "$CONTENT_FILE" "$FULL_FILE"' EXIT
 
 case "$tool_name" in
   Write)
     jq -r '.tool_input.content // empty' <<<"$INPUT" >"$CONTENT_FILE"
+    cp "$CONTENT_FILE" "$FULL_FILE"   # a Write IS the whole file
     ;;
   Edit)
     jq -r '.tool_input.new_string // empty' <<<"$INPUT" >"$CONTENT_FILE"
@@ -47,6 +52,19 @@ case "$tool_name" in
     hes_allow
     ;;
 esac
+
+# Reconstruct the whole post-write file for Edit/MultiEdit (apply the edit to the
+# on-disk file). Falls back to the fragment if reconstruction isn't safe (new
+# file, old_string absent/ambiguous, no python3).
+if [ "$tool_name" = "Edit" ] || [ "$tool_name" = "MultiEdit" ]; then
+  if command -v python3 >/dev/null 2>&1 \
+    && python3 "${SELF_DIR}/prepare_content.py" <<<"$INPUT" >"$FULL_FILE" 2>/dev/null \
+    && [ -s "$FULL_FILE" ]; then
+    :
+  else
+    cp "$CONTENT_FILE" "$FULL_FILE"
+  fi
+fi
 
 # f. Derive rel path, basename, change line count.
 case "$file_path" in
@@ -67,6 +85,11 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 mode="$(jq -r '.mode // "enforce"' "$CONFIG")"
+# strict_whole_file: when true, forbid/max rules (and AST rules) evaluate the
+# WHOLE would-be file instead of just the change — FP-free + catches multiline/
+# alias, at the cost of blocking edits to a file that already violates elsewhere.
+strict="$(jq -r 'if .strict_whole_file == true then "1" else "0" end' "$CONFIG")"
+case "$strict" in 1) : ;; *) strict=0 ;; esac
 
 # g2. SELF-PROTECTION — the gate's own control plane (rules, config, hooks, and
 # the rule source CONVENTIONS.md) is NOT a *.py/*.swift source file, so without
@@ -123,6 +146,8 @@ export HES_ROOT="$ROOT"
 export HES_FILE_PATH="$rel"
 export HES_BASENAME="$base"
 export HES_CONTENT_FILE="$CONTENT_FILE"
+export HES_FULL_FILE="$FULL_FILE"
+export HES_STRICT="$strict"
 export HES_CHANGE_LINES="$change_lines"
 
 VIOLATIONS=""
