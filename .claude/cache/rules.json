@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generated_from": "CONVENTIONS.md",
-  "source_sha256": "f95ea139e8816c050addbe0b070c03490791797e963541b4ddad4c367c69d2de",
+  "source_sha256": "65f44d6e6326f7b7fa38184a34d9a804321cbcdff7862aeef982160a47b60e1a",
   "rules": [
     {
       "id": "no-print",
