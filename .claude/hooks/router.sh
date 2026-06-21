@@ -23,6 +23,11 @@ if [ -z "$file_path" ]; then
   hes_allow
 fi
 
+# d2. Canonicalize the path LEXICALLY before any matching, so '..'/'.'/'//'
+# segments cannot be used to dodge the ignore list or the self-protection
+# guard below (e.g. '<root>/tools/../src/x.py' really targets src/x.py).
+file_path="$(hes_normpath "$file_path")"
+
 # e. Temp file for proposed content; clean on exit.
 CONTENT_FILE="$(mktemp "${TMPDIR:-/tmp}/hes_content.XXXXXX")"
 trap 'rm -f "$CONTENT_FILE"' EXIT
@@ -62,6 +67,22 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 mode="$(jq -r '.mode // "enforce"' "$CONFIG")"
+
+# g2. SELF-PROTECTION — the gate's own control plane (rules, config, hooks, and
+# the rule source CONVENTIONS.md) is NOT a *.py/*.swift source file, so without
+# this guard it falls straight through to hes_allow: a single Write of
+# '{"rules":[]}' to rules.json, or flipping mode in config.json, silently
+# disables every gate. The protected set is HARD-CODED here (not read from
+# config) so it cannot be widened by editing config. Override only via the
+# out-of-band env var HES_ALLOW_SELF_EDIT=1, which the model cannot set through
+# tool_input. Bash/NotebookEdit write paths are still ungated — a known boundary.
+if [ "$mode" = "enforce" ] && [ "${HES_ALLOW_SELF_EDIT:-}" != "1" ]; then
+  case "$rel" in
+    .claude/hooks/*|.claude/cache/rules.json|.claude/config.json|.claude/settings.json|CONVENTIONS.md)
+      hes_deny "Blocked by HES gate: [hes-self-protect] '${rel}' is the HES control plane — change it directly (human edit + 'python3 tools/parse_conventions.py'), or set HES_ALLOW_SELF_EDIT=1 to override."
+      ;;
+  esac
+fi
 
 # Source-glob match.
 is_source="false"
@@ -122,6 +143,24 @@ count_errors() {
 # h. Gate 1 — always run (the only HARD guarantee).
 g1="$(bash "${SELF_DIR}/gate1-shell.sh" || true)"
 append_violations "$g1"
+
+# h2. Staleness: rules.json records the sha256 of the CONVENTIONS.md it was
+# compiled from. If the live source hashes differently, someone edited the
+# rules without recompiling and the gate is silently running stale — surface a
+# non-blocking warn. Lives HERE (the interactive path), not in gate1-shell.sh,
+# so batch consumers that parse gate1 output by [rule-id] (bench/controller)
+# never ingest it. Content-hash, not mtime, so git checkout/pull never spuriously fires.
+CONV="${ROOT}/CONVENTIONS.md"
+RULES_FILE="${ROOT}/.claude/cache/rules.json"
+if [ -f "$CONV" ] && [ -f "$RULES_FILE" ]; then
+  recorded_sha="$(jq -r '.source_sha256 // empty' "$RULES_FILE")"
+  if [ -n "$recorded_sha" ]; then
+    current_sha="$(hes_sha256 "$CONV")"
+    if [ -n "$current_sha" ] && [ "$current_sha" != "$recorded_sha" ]; then
+      append_violations "warn|gate1|[stale-rules] CONVENTIONS.md changed since rules.json was compiled — run: python3 tools/parse_conventions.py"
+    fi
+  fi
+fi
 
 # Thresholds. Force integers — a malformed (non-numeric) config value would
 # otherwise abort the `[ -ge ]` test under set -e and could fail-open past

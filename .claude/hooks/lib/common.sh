@@ -24,6 +24,34 @@ hes_log() {
   } || true
 }
 
+# hes_normpath <path>: lexically normalize a path (collapse '.', '..', '//')
+# WITHOUT touching the filesystem — the target may not exist yet (it is a
+# PROPOSED write). Done in awk (already a dependency, and bash-3.2 safe; an
+# array-pop in pure bash needs negative indices unavailable on macOS 3.2).
+# This closes the path-traversal hole where '.../tools/../src/x.py' contained
+# the literal 'tools/' and dodged the ignore list while writing to src/.
+hes_normpath() {
+  awk -v p="$1" 'BEGIN{
+    abs = (p ~ /^\//); n = split(p, a, "/"); top = 0
+    for (i = 1; i <= n; i++) { s = a[i]
+      if (s == "" || s == ".") continue
+      if (s == "..") { if (top > 0 && st[top] != "..") top--; else if (!abs) st[++top] = ".." }
+      else st[++top] = s }
+    out = ""; for (i = 1; i <= top; i++) out = out (i > 1 ? "/" : "") st[i]
+    print (abs ? "/" out : out) }'
+}
+
+# hes_sha256 <file>: print the hex sha256 of a file, portably (macOS 'shasum',
+# Linux 'sha256sum'). Empty string if neither tool exists — callers treat an
+# empty hash as "cannot determine" and skip the check (fail-quiet, never block).
+hes_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" 2>/dev/null | awk '{print $1}'
+  fi
+}
+
 # hes_basename_match <glob> <name>: return 0 if name matches glob (case glob, UNQUOTED).
 hes_basename_match() {
   local glob="$1" name="$2"
