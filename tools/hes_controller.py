@@ -112,18 +112,24 @@ def is_source_file(rel_path, cfg):
       basename matches ANY source_globs AND path contains NONE of the ignore
       substrings AND basename matches NONE of the ignore basename globs.
     """
-    base = os.path.basename(rel_path)
+    # Case-insensitive + trailing-space tolerant, matching common.sh
+    # hes_basename_match (FOO.PY / 'foo.py ' classify like foo.py). fnmatchcase
+    # on pre-lowercased inputs keeps behavior identical across OSes.
+    base = os.path.basename(rel_path).rstrip().lower()
 
     source_globs = cfg.get("source_globs") or []
-    if not any(fnmatch.fnmatch(base, glob) for glob in source_globs):
+    if not any(fnmatch.fnmatchcase(base, glob.lower()) for glob in source_globs):
         return False
 
+    # Anchored path-SEGMENT ignore (not arbitrary substring): "tools/" ignores a
+    # real segment, so 'src/mytools/x.py' is NOT ignored. Mirrors router.sh.
+    anchored = "/" + rel_path
     for sub in cfg.get("ignore_path_substrings") or []:
-        if sub and sub in rel_path:
+        if sub and ("/" + sub) in anchored:
             return False
 
     for glob in cfg.get("ignore_basename_globs") or []:
-        if fnmatch.fnmatch(base, glob):
+        if fnmatch.fnmatchcase(base, glob.lower()):
             return False
 
     return True

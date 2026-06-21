@@ -99,11 +99,14 @@ if [ "$is_source" != "true" ]; then
   hes_allow
 fi
 
-# Ignore by path substring.
+# Ignore by path SEGMENT (anchored). A config entry like "tools/" matches only a
+# real leading path segment, not any substring — so 'src/mytools/x.py' (which
+# contains the literal 'tools/') is NOT ignored. Prepending '/' anchors the
+# match to a segment boundary.
 while IFS= read -r sub; do
   [ -n "$sub" ] || continue
-  case "$rel" in
-    *"$sub"*) hes_allow ;;
+  case "/$rel" in
+    */"$sub"*) hes_allow ;;
   esac
 done < <(jq -r '.ignore_path_substrings[]?' "$CONFIG")
 

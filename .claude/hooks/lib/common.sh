@@ -52,9 +52,15 @@ hes_sha256() {
   fi
 }
 
-# hes_basename_match <glob> <name>: return 0 if name matches glob (case glob, UNQUOTED).
+# hes_basename_match <glob> <name>: return 0 if name matches glob (UNQUOTED).
+# Case-INSENSITIVE and trailing-whitespace tolerant, so 'FOO.PY' and 'foo.py '
+# both match '*.py' — closes the case/extension/trailing-space source-glob
+# evasion. Globs are assumed lowercase (the config + rules use lowercase).
+# (tr, not bash ${x,,}: macOS ships bash 3.2 which lacks case-modification.)
 hes_basename_match() {
   local glob="$1" name="$2"
+  name="${name%"${name##*[![:space:]]}"}"             # strip trailing whitespace
+  name="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
   case "$name" in
     $glob) return 0 ;;
     *) return 1 ;;
